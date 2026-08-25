@@ -763,7 +763,7 @@ void Search::printRootEndingScoreValueBonus(ostream& out) const {
     double utilityWithBonus = utilityNoBonus + utilityDiff;
 
     out << Location::toString(moveLoc,rootBoard) << " " << Global::strprintf(
-      "visits %d edgeVisits %d utilityNoBonus %.2fc utilityWithBonus %.2fc endingScoreBonus %.2f",
+      "visits %" PRId64 " edgeVisits %" PRId64 " utilityNoBonus %.2fc utilityWithBonus %.2fc endingScoreBonus %.2f",
       childVisits, edgeVisits, utilityNoBonus*100, utilityWithBonus*100, endingScoreBonus
     );
     out << endl;

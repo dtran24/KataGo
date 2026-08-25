@@ -639,7 +639,7 @@ void SearchParams::printParams(std::ostream& out) const {
   PRINTPARAM(rootPruneUselessMoves);
   PRINTPARAM(conservativePass);
   PRINTPARAM(fillDameBeforePass);
-  std::cout << "avoidMYTDaggerHackPla" << ": " << (int)avoidMYTDaggerHackPla << std::endl;
+  out << "avoidMYTDaggerHackPla" << ": " << (int)avoidMYTDaggerHackPla << std::endl;
   PRINTPARAM(wideRootNoise);
   PRINTPARAM(enablePassingHacks);
   PRINTPARAM(enableMorePassingHacks);
@@ -647,7 +647,7 @@ void SearchParams::printParams(std::ostream& out) const {
   out << "excludeTerritoryAdjacentToAtari: " << excludeTerritoryAdjacentToAtari.toString() << std::endl;
 
   PRINTPARAM(playoutDoublingAdvantage);
-  std::cout << "playoutDoublingAdvantagePla" << ": " << (int)playoutDoublingAdvantagePla << std::endl;
+  out << "playoutDoublingAdvantagePla" << ": " << (int)playoutDoublingAdvantagePla << std::endl;
 
   PRINTPARAM(avoidRepeatedPatternUtility);
 
