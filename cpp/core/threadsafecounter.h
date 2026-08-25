@@ -92,26 +92,24 @@ public:
   }
 
   inline void waitUntilFalse() const {
-    bool b = get();
-    if(!b)
+    if(!get())
       return;
     std::unique_lock<std::mutex> lock(mutex);
-    while(b) {
+    //Re-check the flag under the mutex before waiting - a set() that ran entirely between the
+    //unlocked check above and the wait() would otherwise notify before we're registered on the
+    //condvar, and the notification would be lost, leaving us waiting on a stale value forever.
+    while(get())
       falseCondVar.wait(lock);
-      b = get();
-    }
     return;
   }
 
   inline void waitUntilTrue() const {
-    bool b = get();
-    if(b)
+    if(get())
       return;
     std::unique_lock<std::mutex> lock(mutex);
-    while(!b) {
+    //Re-check the flag under the mutex before waiting, see waitUntilFalse.
+    while(!get())
       trueCondVar.wait(lock);
-      b = get();
-    }
     return;
   }
 
