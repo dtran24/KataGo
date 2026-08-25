@@ -204,8 +204,8 @@ void Search::maybeApplyAntiMirrorForcedExplore(
         proportionToBias = 0.50;
       }
       else if(mirrorAdvantage >= -5.0) {
-        proportionToDump = 0.10 + mirrorAdvantage;
-        proportionToBias = 0.30 + mirrorAdvantage * 4;
+        proportionToDump = 0.10 + mirrorAdvantage * 0.01;
+        proportionToBias = 0.30 + mirrorAdvantage * 0.04;
       }
       else {
         proportionToDump = 0.05;
