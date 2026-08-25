@@ -211,7 +211,7 @@ static httplib::Result oneShotDownload(
 ) {
   httplib::Headers headers;
   if(startByte > 0) {
-    headers.insert(std::make_pair("Range", Global::uint64ToString(startByte) + "-" + Global::uint64ToString(endByte)));
+    headers.insert(std::make_pair("Range", "bytes=" + Global::uint64ToString(startByte) + "-" + Global::uint64ToString(endByte)));
   }
 
   if(!url.isSSL) {
@@ -517,7 +517,7 @@ static string parseString(const json& response, const char* field, size_t maxLen
   try {
     string x = response[field].get<string>();
     if(x.size() > maxLen)
-      throw StringError(string("Field ") + " had Invalid response, length too long: " + Global::uint64ToString(x.size()));
+      throw StringError(string("Field ") + field + " had Invalid response, length too long: " + Global::uint64ToString(x.size()));
     return x;
   }
   catch(nlohmann::detail::exception& e) {
@@ -531,7 +531,7 @@ static string parseStringElt(const json& responseElt, const char* field, size_t 
   try {
     string x = responseElt.get<string>();
     if(x.size() > maxLen)
-      throw StringError(string("Field ") + " had Invalid response, length too long: " + Global::uint64ToString(x.size()));
+      throw StringError(string("Field ") + field + " had Invalid response, length too long: " + Global::uint64ToString(x.size()));
     return x;
   }
   catch(nlohmann::detail::exception& e) {
@@ -550,7 +550,7 @@ static string parseStringOrNull(const json& response, const char* field, size_t 
       return string();
     string x = fieldJson.get<string>();
     if(x.size() > maxLen)
-      throw StringError(string("Field ") + " had Invalid response, length too long: " + Global::uint64ToString(x.size()));
+      throw StringError(string("Field ") + field + " had Invalid response, length too long: " + Global::uint64ToString(x.size()));
     return x;
   }
   catch(nlohmann::detail::exception& e) {
