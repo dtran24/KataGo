@@ -761,7 +761,7 @@ struct GTPEngine {
     vector<int> avoidMoveUntilByLocWhite;
   };
 
-  void filterZeroVisitMoves(const AnalyzeArgs& args, vector<AnalysisData> buf) {
+  void filterZeroVisitMoves(const AnalyzeArgs& args, vector<AnalysisData>& buf) {
     //Avoid printing moves that have 0 visits, unless we need them
     //These should already be sorted so that 0-visit moves only appear at the end.
     int keptMoves = 0;
@@ -3677,7 +3677,8 @@ int MainCmds::gtp(const vector<string>& args) {
           responseIsError = true;
           response = "Could not parse number of visits: " + pieces[0];
         }
-        parsed = true;
+        else
+          parsed = true;
       }
 
       if(parsed) {
