@@ -221,7 +221,7 @@ class SgfDataset(torch.utils.data.IterableDataset):
                                 # Channel 6: Noise stdev in turn number / 50
                                 inputs[6,:,:].fill_(turn_noise_stdev / 50.0)
                                 # Channel 7: Source
-                                is_kgs = ("/kgs" in filename) or ("\\KGS" in filename) or ("/KGS" in filename) or ("\\KGS" in filename)
+                                is_kgs = ("/kgs" in filename) or ("\\kgs" in filename) or ("/KGS" in filename) or ("\\KGS" in filename)
                                 is_fox = ("/fox" in filename) or ("\\fox" in filename) or ("/FOX" in filename) or ("\\FOX" in filename)
                                 if is_kgs:
                                     inputs[7,:,:].fill_(1.0)

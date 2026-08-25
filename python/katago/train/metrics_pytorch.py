@@ -369,7 +369,7 @@ class Metrics:
                     fanin = param.shape[1]
                 elif name.endswith(".gamma"):
                     fanin = 1
-                elif name.endwith(".beta"):
+                elif name.endswith(".beta"):
                     fanin = 1
                 else:
                     assert False, "unimplemented case to compute stats on parameter"

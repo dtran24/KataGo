@@ -140,10 +140,10 @@ if __name__ == '__main__':
                     if flipy:
                         inputstransformed = torch.flip(inputstransformed,[2,3])
                     else:
-                        inputstransformed = torch.flip(inputstransformed,[2])
-                else:
-                    if flipx:
                         inputstransformed = torch.flip(inputstransformed,[3])
+                else:
+                    if flipy:
+                        inputstransformed = torch.flip(inputstransformed,[2])
                     else:
                         pass
                 if swapxy:

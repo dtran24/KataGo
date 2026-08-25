@@ -864,7 +864,7 @@ def _main_impl(rank: int, world_size: int, args, multi_gpu_device_ids, readpipes
                     train_state["global_step_samples"] < required_initial_checkpoint_train_steps
                 ):
                     # Sleep 15 minutes and try again
-                    logging.info(f"Requiring {required_initial_checkpoint_train_steps} but {global_step_samples=}")
+                    logging.info(f"Requiring {required_initial_checkpoint_train_steps} but global_step_samples={train_state.get('global_step_samples')}")
                     time.sleep(900)
                     return None
                 # In the mode where we require a specifc number of train steps, go ahead and reset the export cycle.

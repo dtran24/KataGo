@@ -29,7 +29,7 @@ class GoGameResultSummary(elo.GameResultSummary):
     # @override
     def is_game_file(self, input_file: str) -> bool:
         lower = input_file.lower()
-        return input_file.endswith(".sgf") or input_file.endswith(".sgfs")
+        return lower.endswith(".sgf") or lower.endswith(".sgfs")
 
     # @override
     def get_game_records(self, input_file: str) -> List[GameRecord]:
