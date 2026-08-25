@@ -353,7 +353,7 @@ void SelfplayManager::runDataWriteLoopImpl(ModelData* modelData) {
   while(true) {
     size_t size = modelData->finishedGameQueue.size();
     if(size > maxDataQueueSize / 2 && logger != NULL)
-      logger->write(Global::strprintf("WARNING: Struggling to keep up writing data, %d games enqueued out of %d max",size,maxDataQueueSize));
+      logger->write(Global::strprintf("WARNING: Struggling to keep up writing data, %d games enqueued out of %d max",(int)size,maxDataQueueSize));
 
     FinishedGameData* gameData;
     bool suc = modelData->finishedGameQueue.waitPop(gameData);
