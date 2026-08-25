@@ -726,9 +726,10 @@ bool ConstSymBookNode::getBoardHistoryReachingHere(BoardHistory& ret, vector<Loc
   testAssert(movesFromRoot.size() == pathFromRoot.size());
 
   winlossRet.clear();
+  // pathFromRoot is [root, ..., node], so this loop's last entry is already the queried
+  // node's own winloss value, giving one entry per position along the path.
   for(const BookNode* pathNode: pathFromRoot)
     winlossRet.push_back(pathNode->recursiveValues.winLossValue);
-  winlossRet.push_back(node->recursiveValues.winLossValue);
 
   // Find the total composed symmetry that we will have to apply as we walk down.
   int symmetryAcc = 0;
