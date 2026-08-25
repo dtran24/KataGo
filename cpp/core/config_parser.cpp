@@ -282,8 +282,10 @@ void ConfigParser::readStreamContent(istream& in) {
       value = Global::trim(value, "\"");  // remove double quotes for filename
 
       int lineNum = curLineNum;
+      string savedFilename = curFilename;
       processIncludedFile(value);
       curLineNum = lineNum;
+      curFilename = savedFilename;
       continue;
     }
 
@@ -295,17 +297,17 @@ void ConfigParser::readStreamContent(istream& in) {
 
     if(curFileKeys.find(key) != curFileKeys.end()) {
       if(!keysOverrideEnabled)
-        throw ConfigParsingError("Key '" + key + "' + was specified multiple times in " +
+        throw ConfigParsingError("Key '" + key + "' was specified multiple times in " +
                       curFilename + ", you probably didn't mean to do this, please delete one of them");
       else
-        logMessages.push_back("Key '" + key + "' + was overriden by new value '" + value + "'" + lineAndFileInfo());
+        logMessages.push_back("Key '" + key + "' was overriden by new value '" + value + "'" + lineAndFileInfo());
     }
     if(keyValues.find(key) != keyValues.end()) {
       if(!keysOverrideFromIncludes)
-        throw ConfigParsingError("Key '" + key + "' + was specified multiple times in " +
+        throw ConfigParsingError("Key '" + key + "' was specified multiple times in " +
                       curFilename + " or its included files, and key overriding is disabled");
       else
-        logMessages.push_back("Key '" + key + "' + was overriden by new value '" + value + "'" + lineAndFileInfo());
+        logMessages.push_back("Key '" + key + "' was overriden by new value '" + value + "'" + lineAndFileInfo());
     }
     keyValues[key] = value;
     curFileKeys.insert(key);
