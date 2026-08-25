@@ -451,13 +451,20 @@ static string vformat (const char *fmt, va_list ap)
   while(true)
   {
     // Try to vsnprintf into our buffer.
-    needed = vsnprintf(buf, size, fmt, ap);
+    // A va_list's value is indeterminate after being consumed by vsnprintf, so give each
+    // attempt its own copy in case we need to loop around and retry with a bigger buffer.
+    va_list apCopy;
+    va_copy(apCopy, ap);
+    needed = vsnprintf(buf, size, fmt, apCopy);
+    va_end(apCopy);
     // NB. C99 (which modern Linux and OS X follow) says vsnprintf
     // failure returns the length it would have needed.  But older
     // glibc and current Windows return -1 for failure, i.e., not
     // telling us how much was needed.
 
-    if(needed <= (int)size && needed >= 0)
+    // needed == size means the output was truncated to size-1 chars plus the terminating
+    // NUL, so only strictly smaller values fit.
+    if(needed < (int)size && needed >= 0)
       break;
 
     // vsnprintf reported that it wanted to write more characters
