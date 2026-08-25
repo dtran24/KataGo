@@ -203,7 +203,7 @@ static bool tryAbbreviateStepString(const string& input, string& buf) {
 
   if(number >= 10000000000LL)
     buf = prefix + std::to_string(number / 1000000000LL) + "G";
-  if(number >= 10000000)
+  else if(number >= 10000000)
     buf = prefix + std::to_string(number / 1000000) + "M";
   else if(number >= 10000)
     buf = prefix + std::to_string(number / 1000) + "K";

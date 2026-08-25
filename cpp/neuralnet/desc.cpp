@@ -2330,7 +2330,7 @@ ValueHeadDesc::ValueHeadDesc(istream& in, int vrsn, bool binaryFloats) {
   if(vOwnershipConv.inChannels != v1Conv.outChannels)
     throw StringError(
       name + Global::strprintf(
-               ": vOwnershipConv.outChannels (%d) != v1Conv.outChannels (%d)",
+               ": vOwnershipConv.inChannels (%d) != v1Conv.outChannels (%d)",
                vOwnershipConv.inChannels,
                v1Conv.outChannels));
   if(vOwnershipConv.outChannels != 1)
@@ -2620,7 +2620,7 @@ ModelDesc::ModelDesc(istream& in, const string& sha256_, bool binaryFloats) {
   if(numInputGlobalChannels != trunk.initialMatMul.inChannels)
     throw StringError(
       name + Global::strprintf(
-               ": numInputChannels (%d) != trunk.initialMatMul.inChannels (%d)",
+               ": numInputGlobalChannels (%d) != trunk.initialMatMul.inChannels (%d)",
                numInputGlobalChannels,
                trunk.initialMatMul.inChannels));
 
