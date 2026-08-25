@@ -54,7 +54,7 @@ int MainCmds::tuner(const vector<string>& args) {
     TCLAP::ValueArg<string> testFP16ComputeArg("","testFP16Compute","Test FP16 compute? true|false|auto (default auto)",false,"auto","BOOL_OR_AUTO");
     TCLAP::ValueArg<string> testFP16TensorCoresArg("","testFP16TensorCores","Test FP16 tensor cores? true|false|auto (default auto)",false,"auto","BOOL_OR_AUTO");
     TCLAP::ValueArg<int> batchSizeArg("","batchsize","Batch size to tune for",false,OpenCLTuner::DEFAULT_BATCH_SIZE,"INT");
-    TCLAP::ValueArg<int> winograd3x3TileSizeArg("","winograd3x3tilesize","Batch size to tune for",false,OpenCLTuner::DEFAULT_WINOGRAD_3X3_TILE_SIZE,"INT");
+    TCLAP::ValueArg<int> winograd3x3TileSizeArg("","winograd3x3tilesize","Winograd 3x3 tile size to tune for",false,OpenCLTuner::DEFAULT_WINOGRAD_3X3_TILE_SIZE,"INT");
     TCLAP::SwitchArg fullArg("","full","Test more possible configurations");
     TCLAP::SwitchArg verboseErrorsArg("","verboseErrors","Verbosely print out errors for configurations that fail");
     TCLAP::SwitchArg verboseTunerArg("","verboseTuner","Verbosely print out tuner results even if they don't improve the best");
@@ -71,6 +71,7 @@ int MainCmds::tuner(const vector<string>& args) {
     cmd.add(testFP16ComputeArg);
     cmd.add(testFP16TensorCoresArg);
     cmd.add(batchSizeArg);
+    cmd.add(winograd3x3TileSizeArg);
     cmd.add(fullArg);
     cmd.add(verboseErrorsArg);
     cmd.add(verboseTunerArg);
