@@ -66,7 +66,7 @@ enough to survive a closed laptop.
   the reuse ratio of KataGo's normal training.
 - **Training:** batch 256, 200M samples, 2M samples per epoch, an export every
   5 epochs (20 checkpoints per run), 500K validation rows scored after every
-  epoch, seed 1, SGD, and an explicit LR schedule
+  epoch, seed 1, Muon, and an explicit LR schedule
   `(0,8.0),(100M,4.0),(140M,2.0),(170M,1.0),(190M,0.5)`. The schedule is a
   multiplier on `train.py`'s built-in per-sample LR; the main run holds 8.0 for
   its first 550M samples, so this compresses that shape into 200M with a cooldown
@@ -91,7 +91,7 @@ to change:
 | Flag | Default | Notes |
 |---|---|---|
 | `--seed` | 1 | Also names the runs (`pair1-conv-s1`, `pair1-tf-s1`). Use different seeds for replication runs. |
-| `--optimizer` | `sgd` | `sgd`, `adamw`, or `muon`. The repo does not record which optimizer the published transformer nets used; Muon is the likely candidate. Whatever you pick, use it for both runs. |
+| `--optimizer` | `muon` | `sgd`, `adamw`, or `muon`. Per the [July 2026 symmetry study](https://lightvector.github.io/katagostudies/202607-symmetry/), the released transformers (`b10c512h8nbt3tflrs`, `b11c768h12nbt3tflrs`) were Muon-trained from the start, the main kata1 `b28c512nbt` line was SGD with a Muon-finetuned fork about 50 Elo stronger, and the current main net `b40c768nbt` went SGD early then Muon for most of its run. Muon for both runs is the like-for-like choice; `train.py` rescales the LR for Muon internally, so the same `--lr-schedule` applies. Use `sgd` only if you want the historical convnet recipe, and use the same optimizer for both runs either way. |
 | `--lr-schedule` | see above | `(samples,scale)` points, `K/M/B` suffixes accepted. For an LR sweep, change the scales and give each run a different `--run-tag`. |
 | `--train-extra-args` | empty | Passed through to `train.py`, e.g. `"-use-tf32-matmul"` or `"-use-bf16"`. |
 | `--conv-kind`, `--tf-kind` | see above | Any name in `python/katago/train/modelconfigs.py`. |

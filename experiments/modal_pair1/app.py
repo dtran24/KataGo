@@ -751,7 +751,7 @@ def main(
     samples_per_epoch: int = 2_000_000,
     epochs_per_export: int = 5,
     lr_schedule: str = DEFAULT_LR_SCHEDULE,
-    optimizer: str = "sgd",
+    optimizer: str = "muon",
     train_extra_args: str = "",
     max_val_samples: int = 500_000,
     # evaluation
