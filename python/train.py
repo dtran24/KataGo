@@ -130,6 +130,7 @@ if __name__ == "__main__":
     optional_args.add_argument('-quit-if-no-data', help='If no data, quit instead of waiting for data', required=False, action='store_true')
 
     optional_args.add_argument('-no-lr-warmup', help='Disable LR warmup schedule', required=False, action='store_true')
+    optional_args.add_argument('-seed', help='Seed for torch, numpy, and python random. Random if unspecified. Note: does not make training bit-for-bit deterministic on GPU.', type=int, required=False)
     optional_args.add_argument('-gnorm-stats-debug', required=False, action='store_true')
 
     optional_args.add_argument('-brenorm-avg-momentum', type=float, help='Set brenorm running avg rate to this value', required=False)
@@ -495,9 +496,14 @@ def _main_impl(rank: int, world_size: int, args, multi_gpu_device_ids, readpipes
         logging.warning("WARNING: No GPU, using CPU")
         device = torch.device("cpu")
 
-    seed = int.from_bytes(os.urandom(7), sys.byteorder)
-    logging.info(f"Seeding torch with {seed}")
+    if args.get("seed") is not None:
+        seed = args["seed"]
+    else:
+        seed = int.from_bytes(os.urandom(7), sys.byteorder)
+    logging.info(f"Seeding torch, numpy, and random with {seed}")
     torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed % (2**32))
 
     # LR SCHEDULES ---------------------------------------------------------------------
 
