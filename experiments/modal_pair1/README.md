@@ -5,10 +5,10 @@ networks on the **same fixed pool of kata1 self-play data** and compares them on
 held-out loss and fixed-visit Elo. Everything else about the two runs is held
 constant; the only difference is the inner block type:
 
-| Run | `-model-kind` | Inner block | Params (approx) |
+| Run | `-model-kind` | Inner block | Params (measured) |
 |---|---|---|---|
-| `conv` | `b5c192nbt-fson-mish-rvglr-bnh` | two 3x3 conv residual blocks at width 96 | ~2.0M |
-| `tf` | `b5c192h3nbttfrs-fson-silu-rsnh` | 3-head RoPE attention + gated FFN at width 96 | ~1.4M |
+| `conv` | `b5c192nbt-fson-mish-rvglr-bnh` | two 3x3 conv residual blocks at width 96 | 1,935,298 |
+| `tf` | `b5c192h3nbttfrs-fson-silu-rsnh` | 3-head RoPE attention + gated FFN at width 96 | 1,376,301 |
 
 Both share the nested-bottleneck wrapper, trunk width 192, inner width 96, five
 blocks, and roughly equal compute per evaluation. The suffixes mirror the
@@ -27,13 +27,13 @@ modal token new          # once, authenticates the CLI
 
 Run every command below from the repository root. The first invocation builds
 the image (CUDA toolchain, torch, and a multi-architecture CUDA build of the C++
-engine), which takes a while but is cached afterwards.
+engine); that took about 12 minutes and is cached afterwards.
 
 ## Quick start
 
 ```bash
 # 1. End-to-end check on the 1024-row test file: benchmark, tiny train, export,
-#    8-game match, Elo, report. A few minutes on an L4, a few cents.
+#    8-game match, Elo, report. About 15 minutes on an L4, a few cents.
 modal run experiments/modal_pair1/app.py --stage smoke
 
 # 2. Full pipeline, detached so it keeps running after you close the terminal.
@@ -47,6 +47,8 @@ Stages can also be run one at a time and re-run safely:
 
 | Stage | What it does | Hardware | Skips / resumes |
 |---|---|---|---|
+| `smoke` | Benchmarks both models, trains each for `--smoke-samples` (default 8192) on the 1024-row test file, exports, plays an 8-game match, computes Elo, writes the report. Artifacts land under `smoke/<timestamp>` on the volume. | 1x L4 | |
+| `diag` | Runs `benchmark_fresh_model.py` variants (`--diag-names`, comma separated; empty = all) and prints gradient-norm health and throughput per variant. `--diag-gpu h100` runs them on an H100. | L4 or H100 | |
 | `data` | Downloads daily kata1 archives from katagoarchive.org, extracts on local disk, runs `shuffle.py` into `/data/shuffled/<dataset>/{train,val}` | 16 CPU, 64 GB RAM | Skips if the dataset exists (`--force-data` rebuilds) |
 | `train` | Runs `train.py` for both models in parallel | 1x H100 each | Resumes from the last checkpoint in `runs/<run>/train` |
 | `export` | Converts torch checkpoints to `.bin.gz` with `export_model_pytorch.py -use-swa` | CPU | Skips already-exported checkpoints |
@@ -66,12 +68,12 @@ enough to survive a closed laptop.
   the reuse ratio of KataGo's normal training.
 - **Training:** batch 256, 200M samples, 2M samples per epoch, an export every
   5 epochs (20 checkpoints per run), 500K validation rows scored after every
-  epoch, seed 1, Muon, and an explicit LR schedule
-  `(0,8.0),(100M,4.0),(140M,2.0),(170M,1.0),(190M,0.5)`. The schedule is a
-  multiplier on `train.py`'s built-in per-sample LR; the main run holds 8.0 for
-  its first 550M samples, so this compresses that shape into 200M with a cooldown
-  at the end. Because both runs use the same `-seed`, they also see the same
-  file order.
+  epoch, seed 1, Muon, `-no-compile -use-bf16` (see the known issue below), and an explicit
+  LR schedule `(0,8.0),(100M,4.0),(140M,2.0),(170M,1.0),(190M,0.5)`. The
+  schedule is a multiplier on `train.py`'s built-in per-sample LR; the main run
+  holds 8.0 for its first 550M samples, so this compresses that shape into 200M
+  with a cooldown at the end. Because both runs use the same `-seed`, they also
+  see the same file order.
 - **Evaluation:** 7 log-spaced checkpoints per run (14 bots), 200 visits per
   move, 19x19, area scoring, positional ko, komi 7, fp32 inference, about 400
   games per bot. Any `.bin.gz` files placed under `/anchors` on the volume are
@@ -81,6 +83,34 @@ enough to survive a closed laptop.
   ```bash
   modal volume put katago-pair1 ./g170-b6c96-s175395328-d26788732.bin.gz /anchors/g170-b6c96.bin.gz
   ```
+
+## Known issue: torch.compile corrupts the transformer's gradients
+
+With torch 2.8.0+cu128, the compiled transformer produces non-finite gradient
+norms on every batch, on both the L4 and the H100, in fp32, bf16, and tf32. The
+convnet compiles cleanly. `train.py`'s gradient watcher catches it: a compiled
+transformer run halted at batch 88 with 32 non-finite and 23 extreme norms.
+Without compile every variant is clean, gradient norms shrink normally, and
+losses fall. Results from `--stage diag` (batch 256, Muon):
+
+| Variant | L4 | H100 |
+|---|---|---|
+| transformer, compile, fp32 | **8/8 non-finite**, 439/s | **8/8 non-finite**, 1,599/s |
+| transformer, compile, bf16 | | **8/8 non-finite**, 8,182/s |
+| transformer, compile, tf32 | | **8/8 non-finite**, 4,451/s |
+| transformer, no compile, fp32 | clean, 350/s | clean, 1,445/s |
+| transformer, no compile, bf16 | clean, 729/s | clean, 3,680/s |
+| transformer, no compile, SGD / env toggles / base config | clean, ~350/s | |
+| convnet, compile, fp32 | clean, ~1,400/s | clean, 9,488/s |
+| convnet, compile, bf16 | | clean, 8,108/s |
+| convnet, no compile, fp32 | clean, 877/s | clean, 4,522/s |
+
+So the pipeline passes `-no-compile` to `train.py` by default for both runs
+(`--train-extra-args`). On the H100 that costs the transformer about 10% and the
+convnet about 2x, which bf16 autocast more than wins back. The shared flag applies to both runs; to compile only the
+convnet, use `--train-extra-args="" --tf-extra-args=-no-compile`. The root cause
+is somewhere in the inductor graph for the attention path and is worth a look
+upstream, but it is out of scope here.
 
 ## Knobs
 
@@ -92,31 +122,31 @@ to change:
 |---|---|---|
 | `--seed` | 1 | Also names the runs (`pair1-conv-s1`, `pair1-tf-s1`). Use different seeds for replication runs. |
 | `--optimizer` | `muon` | `sgd`, `adamw`, or `muon`. Per the [July 2026 symmetry study](https://lightvector.github.io/katagostudies/202607-symmetry/), the released transformers (`b10c512h8nbt3tflrs`, `b11c768h12nbt3tflrs`) were Muon-trained from the start, the main kata1 `b28c512nbt` line was SGD with a Muon-finetuned fork about 50 Elo stronger, and the current main net `b40c768nbt` went SGD early then Muon for most of its run. Muon for both runs is the like-for-like choice; `train.py` rescales the LR for Muon internally, so the same `--lr-schedule` applies. Use `sgd` only if you want the historical convnet recipe, and use the same optimizer for both runs either way. |
+| `--train-extra-args` | `-no-compile -use-bf16` | Passed to `train.py` for both runs. `-no-compile` is required for the transformer (known issue below). bf16 autocast is on because a 131K-sample smoke gave the same validation losses as fp32 to three decimals (transformer value loss 0.9778 vs 0.9774, convnet 1.1308 vs 1.1307) at 1.75x to 2.5x the speed. Set `--train-extra-args=-no-compile` for fp32. |
+| `--conv-extra-args`, `--tf-extra-args` | empty | Appended to `train.py` args for one run only. |
 | `--lr-schedule` | see above | `(samples,scale)` points, `K/M/B` suffixes accepted. For an LR sweep, change the scales and give each run a different `--run-tag`. |
-| `--train-extra-args` | empty | Passed through to `train.py`, e.g. `"-use-tf32-matmul"` or `"-use-bf16"`. |
 | `--conv-kind`, `--tf-kind` | see above | Any name in `python/katago/train/modelconfigs.py`. |
 | `--days`, `--end-date`, `--keep-rows` | 30, 2025-12-04, 50M | The archive index at https://katagoarchive.org/kata1/trainingdata/ shows which dates exist. |
 | `--visits`, `--games-per-bot`, `--checkpoints-per-run` | 200, 400, 7 | Elo standard error is roughly 350/sqrt(games) per bot. |
 | `--max-val-samples` | 500K | Validation rows scored per epoch. Lower it if validation time dominates. |
+| `--smoke-samples` | 8192 | Longer smoke runs (e.g. 131072) show whether both models learn and give `train.py` enough batches to log gradient norms. |
 
-## Cost and time (rough)
+## Cost and time (measured)
 
-Modal bills per second. With the defaults, on the September 2026 price list:
+Throughput is from `--stage diag` on Modal's H100 at batch 256 with Muon and
+`-no-compile`; the training-loop numbers include optimizer and metrics overhead.
+Prices are Modal's September 2026 list (H100 $3.95/h, L4 $0.80/h).
 
-| Step | Wall-clock | Cost |
-|---|---|---|
-| Image build (once) | 20 to 40 min | ~$1 |
-| `data` | 1 to 2 h | ~$3 |
-| `train` (both, parallel, H100) | 1 to 3 h | $10 to $25 |
-| `export` | minutes | < $1 |
-| `eval` (L4) | ~1 h | ~$1 |
-| **Total** | **~3 to 5 h** | **$15 to $30** |
+| Configuration | conv samples/s | tf samples/s | Wall-clock for 200M (parallel) | H100 cost, both runs |
+|---|---|---|---|---|
+| bf16, `-no-compile` (default) | ~8,000 (est. from compiled bf16 at 8,108) | 3,680 | ~15 h (tf is the long pole) | ~$85 |
+| fp32, `-no-compile` (`--train-extra-args=-no-compile`) | 4,522 | 1,445 | ~38 h | ~$200 |
 
-These are FLOP-based estimates within about a factor of two. The `smoke` stage
-prints measured training throughput for both models on the GPU it ran on; hours
-for the real run are `200M / (samples per second)` scaled by H100 versus L4 speed.
-The full protocol of three seeds plus a three-point LR sweep is roughly 5 to 7x
-the base cost and the same wall-clock, since Modal runs the jobs in parallel.
+Add about $3 and 1 to 2 hours for `data`, about $1 for `eval` on an L4, and
+about $1 for the one-time image build. Multiply by 5 to 7x for the full protocol
+of three seeds plus a three-point LR sweep; wall-clock stays the same because
+Modal runs the jobs in parallel. The transformer is the cost driver: on the same
+GPU it trains about 3x slower per sample than the convnet in fp32.
 
 ## Where things land on the volume
 
@@ -140,6 +170,9 @@ Browse with `modal volume ls katago-pair1 <path>` and download with
   seeds before drawing conclusions.
 - Held-out loss compares well within a family; across families the loss-to-Elo
   mapping can shift, so the Elo table is the primary result.
+- `benchmark_fresh_model.py` always compiles, so the transformer benchmark inside
+  `smoke` will keep reporting non-finite gradient norms even though the training
+  run right after it is fine. Read the training metrics, not the benchmark line.
 - The L4 used for evaluation is not in the C++ build's native architecture list
   for this CUDA version, so the first engine start JIT-compiles from PTX. It is a
   one-time delay per container.

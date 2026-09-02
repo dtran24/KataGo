@@ -17,6 +17,11 @@ Usage (from the repo root):
   modal run experiments/modal_pair1/app.py --stage smoke        # minutes, cents
   modal run --detach experiments/modal_pair1/app.py --stage all # full pipeline
   modal run experiments/modal_pair1/app.py --stage data|train|export|eval|report
+  modal run experiments/modal_pair1/app.py --stage diag --diag-gpu h100   # benchmark variants
+
+Both runs pass "-no-compile -use-bf16" to train.py by default: with torch 2.8 the compiled
+transformer produces non-finite gradients (see README, "Known issue"), and bf16 autocast
+matched fp32 losses in the long smoke while running 1.75x to 2.5x faster. Use --stage diag to re-check.
 
 See README.md next to this file for details, costs and knobs.
 """
@@ -43,8 +48,20 @@ APP_NAME = "katago-pair1"
 VOLUME_NAME = "katago-pair1"
 DATA = "/data"  # volume mount point inside containers
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 REMOTE_REPO = "/root/KataGo"
+
+
+def _find_repo_root() -> Path:
+    """Locate the KataGo checkout locally (for image building). Inside a Modal container this
+    module is mounted at /root/app.py, where no checkout exists; only the remote paths matter there."""
+    here = Path(__file__).resolve()
+    for candidate in [here.parent, *here.parents]:
+        if (candidate / "python" / "train.py").exists():
+            return candidate
+    return Path(REMOTE_REPO)
+
+
+REPO_ROOT = _find_repo_root()
 PY_DIR = f"{REMOTE_REPO}/python"
 KATAGO_BIN = f"{REMOTE_REPO}/cpp/build/katago"
 
@@ -459,7 +476,7 @@ def build_report(run_roots, eval_root):
     return text
 
 
-def make_train_cfg(p, run_name, model_kind):
+def make_train_cfg(p, run_name, model_kind, extra_args=""):
     return {
         "run_name": run_name,
         "model_kind": model_kind,
@@ -472,7 +489,7 @@ def make_train_cfg(p, run_name, model_kind):
         "max_val_samples": p["max_val_samples"],
         "seed": p["seed"],
         "optimizer": p["optimizer"],
-        "extra_args": p["train_extra_args"],
+        "extra_args": (p["train_extra_args"] + " " + extra_args).strip(),
     }
 
 
@@ -643,8 +660,9 @@ def report(run_names: list, eval_name: str) -> str:
 
 
 @app.function(image=image, gpu="L4", cpu=4.0, memory=16384, timeout=3600, volumes={DATA: vol})
-def smoke(conv_kind: str, tf_kind: str, optimizer: str) -> dict:
-    """End-to-end check on the 1024-row test file: benchmark, tiny train, export, 8-game match, Elo, report."""
+def smoke(conv_kind: str, tf_kind: str, optimizer: str, smoke_samples: int = 8192, extra_args: str = "") -> dict:
+    """End-to-end check on the 1024-row test file: benchmark, tiny train, export, 8-game match, Elo, report.
+    smoke_samples > 8192 gives a longer training run (still on the 8K-row mini set) for sanity-checking learning."""
     root = "/tmp/smoke"
     shutil.rmtree(root, ignore_errors=True)
     mini = f"{root}/mini"
@@ -653,6 +671,9 @@ def smoke(conv_kind: str, tf_kind: str, optimizer: str) -> dict:
         os.makedirs(f"{mini}/{split}", exist_ok=True)
         for i in range(copies):
             shutil.copy(src, f"{mini}/{split}/mini{i}.npz")
+            # train.py reads the row count from a per-file sidecar that shuffle.py normally writes.
+            with open(f"{mini}/{split}/mini{i}.json", "w") as f:
+                json.dump({"num_rows": 1024}, f)
     with open(f"{mini}/train.json", "w") as f:
         json.dump({"range": [0, 8 * 1024]}, f)
 
@@ -674,8 +695,9 @@ def smoke(conv_kind: str, tf_kind: str, optimizer: str) -> dict:
     for run, kind in kinds.items():
         cfg = {
             "run_name": run, "model_kind": kind, "dataset": "mini",
-            "max_samples": 8192, "batch_size": 256, "samples_per_epoch": 4096, "epochs_per_export": 1,
-            "lr_schedule": "(0,8.0)", "max_val_samples": 1024, "seed": 1, "optimizer": optimizer, "extra_args": "",
+            "max_samples": smoke_samples, "batch_size": 256, "samples_per_epoch": max(4096, smoke_samples // 2),
+            "epochs_per_export": 1, "lr_schedule": "(0,8.0)", "max_val_samples": 1024, "seed": 1,
+            "optimizer": optimizer, "extra_args": extra_args,
         }
         out["train"][run] = train_run(cfg, mini, f"{root}/runs/{run}")
         out["export"][run] = export_run_dir(f"{root}/runs/{run}")
@@ -684,6 +706,11 @@ def smoke(conv_kind: str, tf_kind: str, optimizer: str) -> dict:
     for run in kinds:
         bots += [{"name": e["name"], "path": e["path"], "run": run} for e in list_exported(f"{root}/runs/{run}")]
     out["match"] = run_match(f"{root}/eval", bots, [], visits=16, games_per_bot=4, game_threads=8)
+    out["train_metrics_tail"] = {}
+    for run in kinds:
+        rows = read_jsonl(f"{root}/runs/{run}/train/metrics_train.json")
+        keep = ("nsamp", "p0loss", "vloss", "loss", "gnorm_batch", "exgnorm_batch", "gnorm_cap_batch", "pslr_batch")
+        out["train_metrics_tail"][run] = [{k: r.get(k) for k in keep if k in r} for r in rows[-3:]]
     out["report"] = build_report({r: f"{root}/runs/{r}" for r in kinds}, f"{root}/eval")
 
     stamp = _dt.datetime.utcnow().strftime("%Y%m%d-%H%M%S")
@@ -706,7 +733,10 @@ def run_pipeline(p: dict) -> dict:
         out["data"] = prepare_data.remote(p["dataset"], p["dates"], p["keep_rows"], p["val_keep_rows"], p["force_data"])
 
     if stage in ("train", "all"):
-        cfgs = [make_train_cfg(p, p["conv_run"], p["conv_kind"]), make_train_cfg(p, p["tf_run"], p["tf_kind"])]
+        cfgs = [
+            make_train_cfg(p, p["conv_run"], p["conv_kind"], p["conv_extra_args"]),
+            make_train_cfg(p, p["tf_run"], p["tf_kind"], p["tf_extra_args"]),
+        ]
         out["train"] = list(train_model.map(cfgs))  # both models train in parallel, one GPU each
 
     if stage in ("export", "all"):
@@ -719,6 +749,60 @@ def run_pipeline(p: dict) -> dict:
         out["report"] = report.remote(run_names, p["eval_name"])
 
     return out
+
+
+# ----------------------------------------------------------------------------
+# Diagnostic: benchmark variants (gradient-norm health + throughput) on L4 or H100
+# ----------------------------------------------------------------------------
+
+DIAG_VARIANTS = [
+    # name, model kind, extra benchmark args, env overrides
+    ("tf-muon-compile",         "b5c192h3nbttfrs-fson-silu-rsnh", ["-optimizer", "muon"], {}),
+    ("tf-muon-nocompile",       "b5c192h3nbttfrs-fson-silu-rsnh", ["-optimizer", "muon", "-no-compile"], {}),
+    ("tf-sgd-nocompile",        "b5c192h3nbttfrs-fson-silu-rsnh", ["-optimizer", "sgd", "-no-compile"], {}),
+    ("tf-muon-bf16-nocompile",  "b5c192h3nbttfrs-fson-silu-rsnh", ["-optimizer", "muon", "-no-compile", "-use-bf16"], {}),
+    ("tf-nomaskskip-nocompile", "b5c192h3nbttfrs-fson-silu-rsnh", ["-optimizer", "muon", "-no-compile"], {"KATAGO_TRANSFORMER_SKIP_REDUNDANT_MASKS": "0"}),
+    ("tf-ropecast0-nocompile",  "b5c192h3nbttfrs-fson-silu-rsnh", ["-optimizer", "muon", "-no-compile"], {"KATAGO_LEARNED_ROPE_CAST_TO_INPUT_DTYPE": "0"}),
+    ("tf-fson-silu-nocompile",  "b5c192h3nbttfrs-fson-silu",      ["-optimizer", "muon", "-no-compile"], {}),
+    ("tfbase-muon-nocompile",   "b5c192h3nbttfrs",                ["-optimizer", "muon", "-no-compile"], {}),
+    ("conv-muon-nocompile",     "b5c192nbt-fson-mish-rvglr-bnh",  ["-optimizer", "muon", "-no-compile"], {}),
+    ("tf-muon-bf16-compile",    "b5c192h3nbttfrs-fson-silu-rsnh", ["-optimizer", "muon", "-use-bf16"], {}),
+    ("tf-muon-tf32-compile",    "b5c192h3nbttfrs-fson-silu-rsnh", ["-optimizer", "muon", "-use-tf32-matmul"], {}),
+    ("conv-muon-compile",       "b5c192nbt-fson-mish-rvglr-bnh",  ["-optimizer", "muon"], {}),
+    ("conv-muon-bf16-compile",  "b5c192nbt-fson-mish-rvglr-bnh",  ["-optimizer", "muon", "-use-bf16"], {}),
+]
+
+
+def _run_diag(names: list) -> dict:
+    out = {}
+    for name, kind, extra, env_over in DIAG_VARIANTS:
+        if names and name not in names:
+            continue
+        cmd = [sys.executable, "benchmark_fresh_model.py", "-model-kind", kind, "-batch-size", "256",
+               "-data", f"{PY_DIR}/testdata/benchmark_data_1024.npz", "-mode", "trainloop",
+               "-num-iters", "6", "-warmup-iters", "2"] + extra
+        print("+ " + " ".join(cmd), env_over, flush=True)
+        env = dict(os.environ, **env_over)
+        p = subprocess.run(cmd, cwd=PY_DIR, capture_output=True, text=True, env=env)
+        text = p.stdout + p.stderr
+        bad = re.search(r"Bad-gnorm batches: .*", text)
+        thr = re.search(r"Throughput: .*", text)
+        tail = "\n".join(text.strip().splitlines()[-8:])
+        out[name] = {"rc": p.returncode, "bad_gnorm": bad.group(0) if bad else None, "throughput": thr.group(0) if thr else None, "tail": tail}
+        print(f"=== {name}: rc={p.returncode} | {out[name]['bad_gnorm']} | {out[name]['throughput']}", flush=True)
+        if p.returncode != 0:
+            print(tail, flush=True)
+    return out
+
+
+@app.function(image=image, gpu="L4", cpu=4.0, memory=16384, timeout=3600)
+def diagnose(names: list) -> dict:
+    return _run_diag(names)
+
+
+@app.function(image=image, gpu="H100", cpu=8.0, memory=32768, timeout=3600)
+def diagnose_h100(names: list) -> dict:
+    return _run_diag(names)
 
 
 # ----------------------------------------------------------------------------
@@ -752,22 +836,36 @@ def main(
     epochs_per_export: int = 5,
     lr_schedule: str = DEFAULT_LR_SCHEDULE,
     optimizer: str = "muon",
-    train_extra_args: str = "",
+    train_extra_args: str = "-no-compile -use-bf16",
+    conv_extra_args: str = "",
+    tf_extra_args: str = "",
     max_val_samples: int = 500_000,
+    # smoke / diag
+    smoke_samples: int = 8192,
+    diag_names: str = "",
+    diag_gpu: str = "L4",
     # evaluation
     checkpoints_per_run: int = 7,
     visits: int = 200,
     games_per_bot: int = 400,
     eval_name: str = "",
 ):
-    stages = ("smoke", "data", "train", "export", "eval", "report", "all")
+    stages = ("smoke", "diag", "data", "train", "export", "eval", "report", "all")
     if stage not in stages:
         raise SystemExit(f"--stage must be one of {stages}")
     if optimizer not in OPTIMIZER_FLAGS:
         raise SystemExit(f"--optimizer must be one of {list(OPTIMIZER_FLAGS)}")
 
+    if stage == "diag":
+        fn = diagnose_h100 if diag_gpu.lower() == "h100" else diagnose
+        res = fn.remote([n for n in diag_names.split(",") if n])
+        print(f"{'variant':26s} {'rc':>2s}  gradient norms | throughput")
+        for k, v in res.items():
+            print(f"{k:26s} {v['rc']:>2d}  {v['bad_gnorm']} | {v['throughput']}")
+        return
+
     if stage == "smoke":
-        result = smoke.remote(conv_kind, tf_kind, optimizer)
+        result = smoke.remote(conv_kind, tf_kind, optimizer, smoke_samples, train_extra_args)
         print(json.dumps({k: v for k, v in result.items() if k != "report"}, indent=2, default=str))
         print(f"\nSmoke OK. Artifacts: modal volume ls {VOLUME_NAME} {result['saved_to'].replace(DATA + '/', '')}")
         return
@@ -791,6 +889,8 @@ def main(
         "lr_schedule": lr_schedule,
         "optimizer": optimizer,
         "train_extra_args": train_extra_args,
+        "conv_extra_args": conv_extra_args,
+        "tf_extra_args": tf_extra_args,
         "max_val_samples": max_val_samples,
         "checkpoints_per_run": checkpoints_per_run,
         "visits": visits,
