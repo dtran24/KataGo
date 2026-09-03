@@ -1308,7 +1308,18 @@ def main(
         "eval_name": eval_name or f"{run_tag}{size_tag}-s{seed}-v{visits}",
     }
     print("Pipeline parameters:\n" + json.dumps(p, indent=2), flush=True)
-    result = run_pipeline.remote(p)
+    # Spawn the pipeline and wait on the call instead of blocking in .remote(): Modal cancels a blocking
+    # call about two minutes after its client stops polling, even in a detached app, so a closed laptop
+    # or a dropped connection took the whole run down. A spawned call belongs to the app, which --detach
+    # keeps alive after this client exits; this client can go away any time after the line below.
+    call = run_pipeline.spawn(p)
+    print(
+        f"Pipeline running as function call {call.object_id} in app {app.app_id}. With --detach it survives "
+        f"this client: follow it with `modal app logs {app.app_id} -f`, or wait on it again from Python with "
+        f"`modal.FunctionCall.from_id('{call.object_id}').get()`.",
+        flush=True,
+    )
+    result = call.get()
     if "report" in result:
         print(result["report"])
     else:

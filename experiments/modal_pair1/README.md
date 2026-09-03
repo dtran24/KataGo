@@ -57,8 +57,13 @@ Stages can also be run one at a time and re-run safely:
 | `report` | Joins per-epoch validation metrics with checkpoint Elos into `report.md` / `report.json` | CPU | |
 | `all` | `data` then `train` then `export` then `eval` then `report` | | |
 
-The orchestration itself runs in a small remote container, so `--detach` is
-enough to survive a closed laptop.
+The orchestration itself runs in a small remote container, and the entrypoint
+starts it with `.spawn()` and then waits on the call, so with `--detach` the run
+survives a closed laptop, a dropped connection or Ctrl-C in the local client.
+(A blocking `.remote()` call is not enough: Modal cancels it about two minutes
+after its client stops polling, even in a detached app.) The app id and the
+function call id are printed at start; re-attach with
+`modal app logs <app-id> -f`, and fetch results from the volume as usual.
 
 ## What the defaults do
 
@@ -142,8 +147,13 @@ modal run --detach experiments/modal_pair1/app.py --stage all --data-source teac
   --max-val-samples 50000 --visits 100 --games-per-bot 400
 ```
 
-Use `--detach`: the orchestration runs remotely, but a local client that dies
-mid-run takes an attached ephemeral app down with it. Each shard copies its
+Use `--detach`: without it the ephemeral app, and the shards with it, stop as
+soon as the local client disconnects. The entrypoint spawns the pipeline call
+rather than blocking on it, because Modal cancels a blocking call about two
+minutes after its client stops polling even in a detached app; that is what a
+sleeping laptop did to a 1M-row run (twice: once through a dead client, once
+through a clean Ctrl-C) before the switch. With the spawned call the client can
+go away at any point after the app has started. Each shard copies its
 finished npz files to `/data/shuffled/<dataset>.tmp/raw/shard_<i>/` on the volume
 once a minute, so a killed container loses at most a minute of rows, and the raw
 files (plus sgfs and engine logs) stay under `<dataset>/raw` after the shuffle.
