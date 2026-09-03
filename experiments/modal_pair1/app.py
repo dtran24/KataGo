@@ -93,6 +93,9 @@ DEFAULT_TEACHER_URL = (
 SELFPLAY_TEMPLATE_CFG = f"{REMOTE_REPO}/cpp/configs/training/selfplay1_maxsize9.cfg"
 # Fair komi under area scoring for solved boards (5x5: Black wins by 25; 7x7: by 9), else 7.
 DEFAULT_KOMI_BY_SIZE = {5: 25.0, 7: 9.0}
+# Modal fixes a function's resources when it is defined, so the generation container exists at these
+# CPU sizes (physical cores; Modal gives 2 vCPUs per core) and --gen-cpu picks one. See GEN_FUNCTIONS.
+GEN_CPU_SIZES = (8, 16, 32)
 
 
 def default_komi(board_size: int) -> float:
@@ -653,11 +656,12 @@ def prepare_data(dataset: str, dates: list, keep_rows: int, val_keep_rows: int, 
     return manifest
 
 
-@app.function(image=image, gpu="L4", cpu=8.0, memory=32768, timeout=12 * 3600, volumes={DATA: vol})
-def generate_teacher_data(dataset: str, board_size: int, teacher_url: str, target_rows: int, visits: int,
-                          cheap_visits: int, game_threads: int, force: bool = False, val_frac: float = 0.05) -> dict:
+def _generate_teacher_data(dataset: str, board_size: int, teacher_url: str, target_rows: int, visits: int,
+                           cheap_visits: int, game_threads: int, nn_threads: int = 2, cheap_prob: float = 0.75,
+                           force: bool = False, val_frac: float = 0.05, cpu: int = 8) -> dict:
     """Generate a fixed training pool at one board size by running `katago selfplay` with a released
-    net as the teacher, then shuffle it into /data/shuffled/<dataset>/{train,val} with pos_len = board_size."""
+    net as the teacher, then shuffle it into /data/shuffled/<dataset>/{train,val} with pos_len = board_size.
+    Runs inside one of the generate_teacher_data_cpu* functions below."""
     vol.reload()
     out_root = dataset_dir(dataset)
     manifest_path = f"{out_root}/dataset.json"
@@ -694,8 +698,13 @@ def generate_teacher_data(dataset: str, board_size: int, teacher_url: str, targe
         "dataBoardLen": int(board_size),
         "maxVisits": int(visits),
         "cheapSearchVisits": int(cheap_visits),
+        # Cheap searches write no rows (cheapSearchTargetWeight = 0 in the template), so lowering this
+        # raises rows per game at the price of more correlated rows from each game.
+        "cheapSearchProb": float(cheap_prob),
         "numGameThreads": int(game_threads),
         "nnMaxBatchSize": max(32, int(game_threads)),
+        # Small boards make the GPU launch-overhead bound: a second server thread overlaps batches.
+        "numNNServerThreadsPerModel": int(nn_threads),
         "handicapProb": 0.0,
         # Enough raw files (>= ~200) that the 5% file-hash validation split is populated even on small pools.
         "maxRowsPerTrainFile": max(100, min(1000, int(target_rows) // 200)),
@@ -707,10 +716,11 @@ def generate_teacher_data(dataset: str, board_size: int, teacher_url: str, targe
         f.write(override_str + "\n")
 
     # Only moves with positive training weight are written (cheap searches have weight 0), so a game
-    # yields roughly a quarter of its moves as rows. Generate in chunks and re-estimate rows per game.
+    # yields about (1 - cheapSearchProb) of its moves as rows: 6.2 rows per 5x5 game measured at 0.75.
+    # Generate in chunks and re-estimate rows per game.
     out_dir = "/tmp/gen/selfplay"
     os.makedirs(out_dir, exist_ok=True)
-    rows_per_game = max(3.0, 0.3 * board_size * board_size)
+    rows_per_game = max(3.0, (1.0 - float(cheap_prob)) * board_size * board_size)
     rows, files, total_games, chunk = 0, 0, 0, 0
     t0 = time.time()
     while rows < target_rows and chunk < 4:
@@ -750,8 +760,13 @@ def generate_teacher_data(dataset: str, board_size: int, teacher_url: str, targe
         "rows_per_game": rows_per_game,
         "visits": visits,
         "cheap_visits": cheap_visits,
+        "cheap_prob": cheap_prob,
+        "game_threads": game_threads,
+        "nn_threads": nn_threads,
+        "cpu": cpu,
         "val_frac": val_frac,
         "generation_sec": round(gen_sec),
+        "rows_per_sec": round(rows / max(1.0, gen_sec), 1),
         "overrides": overrides,
         **split_counts(tmp_out),
         "created": _dt.datetime.utcnow().isoformat() + "Z",
@@ -762,6 +777,27 @@ def generate_teacher_data(dataset: str, board_size: int, teacher_url: str, targe
     vol.commit()
     print(json.dumps(manifest, indent=2), flush=True)
     return manifest
+
+
+# One generation function per CPU size (Modal resources are fixed per function). Each takes the
+# keyword arguments of _generate_teacher_data as a dict so run_pipeline can pick one by --gen-cpu.
+@app.function(image=image, gpu="L4", cpu=8.0, memory=32768, timeout=12 * 3600, volumes={DATA: vol})
+def generate_teacher_data_cpu8(args: dict) -> dict:
+    return _generate_teacher_data(**args)
+
+
+@app.function(image=image, gpu="L4", cpu=16.0, memory=32768, timeout=12 * 3600, volumes={DATA: vol})
+def generate_teacher_data_cpu16(args: dict) -> dict:
+    return _generate_teacher_data(**args)
+
+
+@app.function(image=image, gpu="L4", cpu=32.0, memory=32768, timeout=12 * 3600, volumes={DATA: vol})
+def generate_teacher_data_cpu32(args: dict) -> dict:
+    return _generate_teacher_data(**args)
+
+
+GEN_FUNCTIONS = {8: generate_teacher_data_cpu8, 16: generate_teacher_data_cpu16, 32: generate_teacher_data_cpu32}
+assert tuple(GEN_FUNCTIONS) == GEN_CPU_SIZES
 
 
 @app.function(image=image, gpu="H100", cpu=8.0, memory=32768, timeout=24 * 3600, volumes={DATA: vol})
@@ -906,10 +942,12 @@ def run_pipeline(p: dict) -> dict:
     out = {"params": p}
 
     if stage == "gen" or (stage in ("data", "all") and p["data_source"] == "teacher"):
-        out["data"] = generate_teacher_data.remote(
-            p["dataset"], p["board_size"], p["teacher_url"], p["gen_rows"], p["gen_visits"],
-            p["gen_cheap_visits"], p["gen_threads"], p["force_data"], p["val_frac"],
-        )
+        out["data"] = GEN_FUNCTIONS[p["gen_cpu"]].remote(dict(
+            dataset=p["dataset"], board_size=p["board_size"], teacher_url=p["teacher_url"],
+            target_rows=p["gen_rows"], visits=p["gen_visits"], cheap_visits=p["gen_cheap_visits"],
+            game_threads=p["gen_threads"], nn_threads=p["gen_nn_threads"], cheap_prob=p["gen_cheap_prob"],
+            force=p["force_data"], val_frac=p["val_frac"], cpu=p["gen_cpu"],
+        ))
     elif stage in ("data", "all"):
         out["data"] = prepare_data.remote(p["dataset"], p["dates"], p["keep_rows"], p["val_keep_rows"], p["force_data"])
 
@@ -1008,7 +1046,10 @@ def main(
     gen_rows: int = 1_000_000,
     gen_visits: int = 600,
     gen_cheap_visits: int = 100,
-    gen_threads: int = 128,
+    gen_cheap_prob: float = 0.75,
+    gen_threads: int = 512,
+    gen_nn_threads: int = 2,
+    gen_cpu: int = 8,
     val_frac: float = 0.05,
     end_date: str = "2025-12-04",
     days: int = 30,
@@ -1055,6 +1096,14 @@ def main(
         raise SystemExit("--board-size must be between 2 and 19")
     if not 0.0 < val_frac < 1.0:
         raise SystemExit("--val-frac must be between 0 and 1")
+    if not 0.0 <= gen_cheap_prob <= 1.0:
+        raise SystemExit("--gen-cheap-prob must be between 0 and 1")
+    if gen_threads < 1 or gen_nn_threads < 1:
+        raise SystemExit("--gen-threads and --gen-nn-threads must be positive")
+    if gen_cheap_visits > gen_visits:
+        raise SystemExit("--gen-cheap-visits must not exceed --gen-visits")
+    if gen_cpu not in GEN_CPU_SIZES:
+        raise SystemExit(f"--gen-cpu must be one of {GEN_CPU_SIZES}")
     if data_source == "archive" and board_size != 19:
         raise SystemExit("--board-size other than 19 requires --data-source teacher (the kata1 archive is 19x19 data)")
     if not dataset:
@@ -1092,7 +1141,10 @@ def main(
         "gen_rows": gen_rows,
         "gen_visits": gen_visits,
         "gen_cheap_visits": gen_cheap_visits,
+        "gen_cheap_prob": gen_cheap_prob,
         "gen_threads": gen_threads,
+        "gen_nn_threads": gen_nn_threads,
+        "gen_cpu": gen_cpu,
         "val_frac": val_frac,
         "komi": komi,
         "komi_auto": komi_auto,

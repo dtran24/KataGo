@@ -174,7 +174,8 @@ to change:
 | `--conv-kind`, `--tf-kind` | see above | Any name in `python/katago/train/modelconfigs.py`. |
 | `--days`, `--end-date`, `--keep-rows` | 30, 2025-12-04, 50M | The archive index at https://katagoarchive.org/kata1/trainingdata/ shows which dates exist. |
 | `--data-source`, `--board-size` | `archive`, 19 | `teacher` generates data at `--board-size` with the `gen` stage; `archive` is the kata1 download and is 19x19 only. |
-| `--gen-rows`, `--gen-visits`, `--gen-cheap-visits`, `--gen-threads`, `--teacher-url` | 1M, 600, 100, 128, kata1-b18c384nbt | Teacher self-play settings. Any katagotraining.org `.bin.gz` URL works as the teacher; it is cached under `/teachers` on the volume. |
+| `--gen-rows`, `--gen-visits`, `--gen-cheap-visits`, `--gen-cheap-prob`, `--teacher-url` | 1M, 600, 100, 0.75, kata1-b18c384nbt | Teacher self-play settings (`maxVisits`, `cheapSearchVisits`, `cheapSearchProb`). Cheap searches write no rows, so a lower `--gen-cheap-prob` yields more rows per game, at the price of more correlated rows from each game. Any katagotraining.org `.bin.gz` URL works as the teacher; it is cached under `/teachers` on the volume. |
+| `--gen-threads`, `--gen-nn-threads`, `--gen-cpu` | 512, 2, 8 | Engine concurrency for `gen`: game threads (`numGameThreads`, with `nnMaxBatchSize` = max(32, threads)), NN server threads (`numNNServerThreadsPerModel`), and the container's physical cores. Modal fixes resources per function, so `--gen-cpu` must be 8, 16 or 32 (one generation function is defined per size). |
 | `--val-frac` | 0.05 | Fraction of generated files that become validation. Raise it for small test pools so the split holds at least a few batches. |
 | `--komi`, `--komi-auto` | fair komi by size, off | Evaluation komi. 0 means the size default (25 on 5x5, 9 on 7x7, else 7). |
 | `--visits`, `--games-per-bot`, `--checkpoints-per-run` | 200, 400, 7 | Elo standard error is roughly 350/sqrt(games) per bot. |
