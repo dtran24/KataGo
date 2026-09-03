@@ -49,7 +49,7 @@ Stages can also be run one at a time and re-run safely:
 |---|---|---|---|
 | `smoke` | Benchmarks both models, trains each for `--smoke-samples` (default 8192) on the 1024-row test file, exports, plays an 8-game match, computes Elo, writes the report. Artifacts land under `smoke/<timestamp>` on the volume. | 1x L4 | |
 | `diag` | Runs `benchmark_fresh_model.py` variants (`--diag-names`, comma separated; empty = all) and prints gradient-norm health and throughput per variant. `--diag-gpu h100` runs them on an H100. | L4 or H100 | |
-| `gen` | Generates a fixed pool at `--board-size` by running `katago selfplay` with a released teacher net, then shuffles it into `/data/shuffled/<dataset>/{train,val}` with `pos_len` = board size. Also what `data`/`all` run when `--data-source teacher`. | 1x L4 | Skips if the dataset exists (`--force-data` rebuilds) |
+| `gen` | Generates a fixed pool at `--board-size` by running `katago selfplay` with a released teacher net in `--gen-shards` parallel containers, then shuffles the merged output into `/data/shuffled/<dataset>/{train,val}` with `pos_len` = board size. Also what `data`/`all` run when `--data-source teacher`. | N x L4 (`--gen-cpu` cores each), then 8 CPU for the shuffle | Skips if the dataset exists (`--force-data` rebuilds) |
 | `data` | Downloads daily kata1 archives from katagoarchive.org, extracts on local disk, runs `shuffle.py` into `/data/shuffled/<dataset>/{train,val}` | 16 CPU, 64 GB RAM | Skips if the dataset exists (`--force-data` rebuilds) |
 | `train` | Runs `train.py` for both models in parallel | 1x H100 each | Resumes from the last checkpoint in `runs/<run>/train` |
 | `export` | Converts torch checkpoints to `.bin.gz` with `export_model_pytorch.py -use-swa` | CPU | Skips already-exported checkpoints |
@@ -125,19 +125,28 @@ same playout-cap randomization as real training), and the rows are shuffled with
 the dataset manifest, so the rest of the pipeline is unchanged.
 
 ```bash
-# 1M rows of 5x5, about 150K games. Rows only come from moves with positive
-# training weight, so a game yields roughly a quarter of its moves.
-modal run experiments/modal_pair1/app.py --stage gen --board-size 5 --gen-rows 1000000
+# 1M rows of 5x5 in about half an hour on four L4s (see the measurements below).
+# Rows only come from moves with positive training weight, so a game yields
+# (1 - cheapSearchProb) of its moves: 12 rows per game at --gen-cheap-prob 0.5.
+modal run --detach experiments/modal_pair1/app.py --stage gen --board-size 5 --gen-rows 1000000 \
+  --gen-visits 200 --gen-cheap-visits 50 --gen-cheap-prob 0.5 --gen-shards 4
 
 # Then the usual stages with the small-board dataset. Small nets saturate a 5x5
 # pool in a few million samples, so shrink the budget and export more often, and
 # raise the batch size since 25-point boards leave the GPU idle at batch 256
 # (train.py scales the LR with batch size automatically).
 modal run --detach experiments/modal_pair1/app.py --stage all --data-source teacher --board-size 5 \
-  --gen-rows 1000000 --batch-size 2048 --max-samples 20000000 --samples-per-epoch 500000 \
+  --gen-rows 1000000 --gen-visits 200 --gen-cheap-visits 50 --gen-cheap-prob 0.5 --gen-shards 4 \
+  --batch-size 2048 --max-samples 20000000 --samples-per-epoch 500000 \
   --epochs-per-export 2 --lr-schedule "(0,8.0),(10M,4.0),(14M,2.0),(17M,1.0),(19M,0.5)" \
   --max-val-samples 50000 --visits 100 --games-per-bot 400
 ```
+
+Use `--detach`: the orchestration runs remotely, but a local client that dies
+mid-run takes an attached ephemeral app down with it. Each shard copies its
+finished npz files to `/data/shuffled/<dataset>.tmp/raw/shard_<i>/` on the volume
+once a minute, so a killed container loses at most a minute of rows, and the raw
+files (plus sgfs and engine logs) stay under `<dataset>/raw` after the shuffle.
 
 Runs and eval names get a `-b5` tag, e.g. `pair1-b5-conv-s1`. `train.py` drops
 partial batches, so keep `--batch-size` well below the validation split's row
@@ -150,13 +159,55 @@ convergence-detection protocol, but a 3x3 convolution covers a 5x5 board after
 two blocks, so the local-versus-global distinction the comparison is about is
 mostly gone there. 9x9 is the smallest size where it survives.
 
-Measured on 5x5 with the defaults (128 game threads, 600/100 visits, b18c384nbt
-teacher on an L4): about 6 games per second, 6.2 rows per game, 32 rows per
-second. So 1M rows is roughly 9 hours and $7 on one L4, and is the long pole.
-Raising `--gen-threads` to 256 or 512 improves GPU utilization, and lowering
-`--gen-visits` / `--gen-cheap-visits` trades target sharpness for speed; on 5x5
-the teacher is near-perfect even at 100 visits. Training both models to 20M
-samples is minutes on an H100 (< $5) and evaluation is minutes on an L4 (< $1).
+### Generation speed and cost on 5x5 (measured)
+
+Each row below is one `--stage gen --board-size 5 --gen-rows 50000` run on Modal
+(100K rows for the sharded one) with the b18c384nbt teacher, read from the
+dataset manifest, which records NN evaluations per second, mean batch size,
+evaluations per training row, average cores in use and a list-price cost
+estimate. Costs count the whole container, not just the GPU: an L4 is $0.80/h,
+and the container's 8 physical cores and 32 GiB add $0.63/h (16 cores: $1.01/h).
+The last two columns extrapolate to a 1M-row pool.
+
+| Generation settings | rows/s | NN evals/s | mean batch | evals/row | 1M rows | $/1M rows |
+|---|---|---|---|---|---|---|
+| before: 128 game threads, 1 NN thread, 600/100 visits, cheap prob 0.75, 8 cores | 30 | 9,600 | 86 | 380 | 9.3 h | $13 ($7 for the L4 alone) |
+| defaults now: `--gen-threads 512 --gen-nn-threads 2`, otherwise as above | 61 | 23,300 | 192 | 382 | 4.6 h | $6.5 |
+| defaults with `--gen-cpu 16` | 57 | 21,800 | 182 | 381 | 4.9 h | $8.8 |
+| defaults with `--gen-visits 200 --gen-cheap-visits 50 --gen-cheap-prob 0.5` | **175** | 22,200 | 157 | 127 | 1.6 h | **$2.3** |
+| same, `--gen-cpu 16` | 168 | 21,200 | 171 | 126 | 1.7 h | $3.0 |
+| same, `--gen-threads 1024` | 170 | 21,900 | 297 | 129 | 1.6 h | $2.3 |
+| same, `--gen-cpu 16 --gen-shards 4` (100K rows) | **527** wall-clock, 153 per container | 19,400 | 140 | 127 | **32 min** | $3.3 |
+
+What the numbers say:
+
+- **The GPU is the limit, and it saturates at about 22K evaluations per second.**
+  Going from 128 game threads with one NN server thread to 512 with two raised
+  the mean batch from 86 to 192 and evaluations per second by 2.4x; 1024 threads
+  doubled the batch again (297) for no further gain, so the L4 is compute bound
+  on this net at 5x5 from there on. The engine used about 5 cores on average in
+  every run, so `--gen-cpu 8` is enough and 16 only adds 26% to the hourly price.
+- **After that, the only lever is evaluations per row.** Cheap searches
+  (`cheapSearchTargetWeight = 0`) write nothing, so at the template's 600/100
+  visits and 75% cheap probability a row costs about 380 evaluations. 200/50
+  visits with a 50% cheap probability cuts that to 127 and gives 175 rows/s,
+  5.8x the starting point at a sixth of the price. The trade: 200 visits are
+  softer targets than 600 (on a solved 5x5 board the teacher is still near
+  perfect), and 12 rows per game instead of 6 means more correlated rows from
+  each game (1M rows come from 83K games instead of 160K). Keep the defaults for
+  boards where the teacher's search quality matters.
+- **Sharding multiplies wall-clock at flat cost per row.** Four shards ran at
+  138 to 163 rows/s each, about the same as one container, and finished 100K
+  rows in 202 s. The 10% cost premium in that row is the ramp-down at the end of each
+  shard (no new games start once the last one has been dealt out, and the tail
+  of a 2,200-game shard is a large fraction of it); at 250K rows per shard it
+  is negligible. Each shard is its own L4 container, so eight shards need eight
+  L4s to be available at once.
+
+So the recommended 5x5 command above, four 8-core shards at 200/50 visits and
+50% cheap searches, should deliver 1M rows in roughly half an hour for about
+$2.5, versus 9 hours and $13 before. Training both models to 20M samples is
+minutes on an H100 (< $5) and evaluation is minutes on an L4 (< $1).
 
 ## Knobs
 
@@ -175,7 +226,7 @@ to change:
 | `--days`, `--end-date`, `--keep-rows` | 30, 2025-12-04, 50M | The archive index at https://katagoarchive.org/kata1/trainingdata/ shows which dates exist. |
 | `--data-source`, `--board-size` | `archive`, 19 | `teacher` generates data at `--board-size` with the `gen` stage; `archive` is the kata1 download and is 19x19 only. |
 | `--gen-rows`, `--gen-visits`, `--gen-cheap-visits`, `--gen-cheap-prob`, `--teacher-url` | 1M, 600, 100, 0.75, kata1-b18c384nbt | Teacher self-play settings (`maxVisits`, `cheapSearchVisits`, `cheapSearchProb`). Cheap searches write no rows, so a lower `--gen-cheap-prob` yields more rows per game, at the price of more correlated rows from each game. Any katagotraining.org `.bin.gz` URL works as the teacher; it is cached under `/teachers` on the volume. |
-| `--gen-threads`, `--gen-nn-threads`, `--gen-cpu` | 512, 2, 8 | Engine concurrency for `gen`: game threads (`numGameThreads`, with `nnMaxBatchSize` = max(32, threads)), NN server threads (`numNNServerThreadsPerModel`), and the container's physical cores. Modal fixes resources per function, so `--gen-cpu` must be 8, 16 or 32 (one generation function is defined per size). |
+| `--gen-threads`, `--gen-nn-threads`, `--gen-cpu` | 512, 2, 8 | Engine concurrency for `gen`: game threads (`numGameThreads`, with `nnMaxBatchSize` = max(32, threads)), NN server threads (`numNNServerThreadsPerModel`), and the container's physical cores. Modal fixes resources per function, so `--gen-cpu` must be 8, 16 or 32 (one generation function is defined per size); on 5x5 the engine uses about 5 cores, so 8 is enough and 16 measured no faster. |
 | `--gen-shards` | 1 | Number of L4 containers generating in parallel. Each targets `ceil(--gen-rows / N)` rows and copies finished files to `/data/shuffled/<dataset>.tmp/raw/shard_<i>/` every minute; one CPU container then shuffles the merged pool. Wall-clock drops about N-fold at the same cost per row. |
 | `--val-frac` | 0.05 | Fraction of generated files that become validation. Raise it for small test pools so the split holds at least a few batches. |
 | `--komi`, `--komi-auto` | fair komi by size, off | Evaluation komi. 0 means the size default (25 on 5x5, 9 on 7x7, else 7). |
@@ -194,8 +245,9 @@ Prices are Modal's September 2026 list (H100 $3.95/h, L4 $0.80/h).
 | bf16, `-no-compile` (default) | ~8,000 (est. from compiled bf16 at 8,108) | 3,680 | ~15 h (tf is the long pole) | ~$85 |
 | fp32, `-no-compile` (`--train-extra-args=-no-compile`) | 4,522 | 1,445 | ~38 h | ~$200 |
 
-Add about $3 and 1 to 2 hours for `data`, about $1 for `eval` on an L4, and
-about $1 for the one-time image build. Multiply by 5 to 7x for the full protocol
+Add about $3 and 1 to 2 hours for `data` (or, for a generated 5x5 pool, about
+$2.5 and half an hour with the recommended `gen` settings above), about $1 for
+`eval` on an L4, and about $1 for the one-time image build. Multiply by 5 to 7x for the full protocol
 of three seeds plus a three-point LR sweep; wall-clock stays the same because
 Modal runs the jobs in parallel. The transformer is the cost driver: on the same
 GPU it trains about 3x slower per sample than the convnet in fp32.

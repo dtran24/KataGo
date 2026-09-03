@@ -19,6 +19,8 @@ Usage (from the repo root):
   modal run experiments/modal_pair1/app.py --stage data|train|export|eval|report
   modal run experiments/modal_pair1/app.py --stage diag --diag-gpu h100   # benchmark variants
   modal run experiments/modal_pair1/app.py --stage gen --board-size 5     # teacher self-play data
+  modal run --detach experiments/modal_pair1/app.py --stage gen --board-size 5 --gen-rows 1000000 \
+      --gen-visits 200 --gen-cheap-visits 50 --gen-cheap-prob 0.5 --gen-shards 4   # ~30 min on 4 L4s
 
 Both runs pass "-no-compile -use-bf16" to train.py by default: with torch 2.8 the compiled
 transformer produces non-finite gradients (see README, "Known issue"), and bf16 autocast
