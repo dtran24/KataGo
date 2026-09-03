@@ -49,6 +49,7 @@ Stages can also be run one at a time and re-run safely:
 |---|---|---|---|
 | `smoke` | Benchmarks both models, trains each for `--smoke-samples` (default 8192) on the 1024-row test file, exports, plays an 8-game match, computes Elo, writes the report. Artifacts land under `smoke/<timestamp>` on the volume. | 1x L4 | |
 | `diag` | Runs `benchmark_fresh_model.py` variants (`--diag-names`, comma separated; empty = all) and prints gradient-norm health and throughput per variant. `--diag-gpu h100` runs them on an H100. | L4 or H100 | |
+| `gen` | Generates a fixed pool at `--board-size` by running `katago selfplay` with a released teacher net, then shuffles it into `/data/shuffled/<dataset>/{train,val}` with `pos_len` = board size. Also what `data`/`all` run when `--data-source teacher`. | 1x L4 | Skips if the dataset exists (`--force-data` rebuilds) |
 | `data` | Downloads daily kata1 archives from katagoarchive.org, extracts on local disk, runs `shuffle.py` into `/data/shuffled/<dataset>/{train,val}` | 16 CPU, 64 GB RAM | Skips if the dataset exists (`--force-data` rebuilds) |
 | `train` | Runs `train.py` for both models in parallel | 1x H100 each | Resumes from the last checkpoint in `runs/<run>/train` |
 | `export` | Converts torch checkpoints to `.bin.gz` with `export_model_pytorch.py -use-swa` | CPU | Skips already-exported checkpoints |
@@ -112,6 +113,51 @@ convnet, use `--train-extra-args="" --tf-extra-args=-no-compile`. The root cause
 is somewhere in the inductor graph for the attention path and is worth a look
 upstream, but it is out of scope here.
 
+## Small boards: generating teacher data
+
+The kata1 archive is 19x19 data (75% 19x19 games, the rest 7x7 to 18x18, all
+padded to 19x19 tensors), so it can't give you smaller-board compute savings.
+The `gen` stage builds a fixed pool at any size from 2 to 19 instead: the
+strongest released b18c384nbt plays self-play games at that size through the
+engine's `selfplay` command (600 visits on full searches, 100 on cheap ones, the
+same playout-cap randomization as real training), and the rows are shuffled with
+`pos_len` equal to the board size. Training and evaluation pick the size up from
+the dataset manifest, so the rest of the pipeline is unchanged.
+
+```bash
+# 1M rows of 5x5, about 150K games. Rows only come from moves with positive
+# training weight, so a game yields roughly a quarter of its moves.
+modal run experiments/modal_pair1/app.py --stage gen --board-size 5 --gen-rows 1000000
+
+# Then the usual stages with the small-board dataset. Small nets saturate a 5x5
+# pool in a few million samples, so shrink the budget and export more often, and
+# raise the batch size since 25-point boards leave the GPU idle at batch 256
+# (train.py scales the LR with batch size automatically).
+modal run --detach experiments/modal_pair1/app.py --stage all --data-source teacher --board-size 5 \
+  --gen-rows 1000000 --batch-size 2048 --max-samples 20000000 --samples-per-epoch 500000 \
+  --epochs-per-export 2 --lr-schedule "(0,8.0),(10M,4.0),(14M,2.0),(17M,1.0),(19M,0.5)" \
+  --max-val-samples 50000 --visits 100 --games-per-bot 400
+```
+
+Runs and eval names get a `-b5` tag, e.g. `pair1-b5-conv-s1`. `train.py` drops
+partial batches, so keep `--batch-size` well below the validation split's row
+count (5% of the pool) or the validation metrics come back empty. Evaluation uses
+the size's fair komi under area scoring by default: 25 on 5x5 and 9 on 7x7, both
+solved results, and 7 elsewhere. Override with `--komi` or let the nets pick with
+`--komi-auto`. Keep in mind what a small board can and can't tell you: it is a
+cheap way to validate the pipeline, the batch and LR settings, and the
+convergence-detection protocol, but a 3x3 convolution covers a 5x5 board after
+two blocks, so the local-versus-global distinction the comparison is about is
+mostly gone there. 9x9 is the smallest size where it survives.
+
+Measured on 5x5 with the defaults (128 game threads, 600/100 visits, b18c384nbt
+teacher on an L4): about 6 games per second, 6.2 rows per game, 32 rows per
+second. So 1M rows is roughly 9 hours and $7 on one L4, and is the long pole.
+Raising `--gen-threads` to 256 or 512 improves GPU utilization, and lowering
+`--gen-visits` / `--gen-cheap-visits` trades target sharpness for speed; on 5x5
+the teacher is near-perfect even at 100 visits. Training both models to 20M
+samples is minutes on an H100 (< $5) and evaluation is minutes on an L4 (< $1).
+
 ## Knobs
 
 Every default above is a flag on the local entrypoint; `modal run
@@ -127,6 +173,10 @@ to change:
 | `--lr-schedule` | see above | `(samples,scale)` points, `K/M/B` suffixes accepted. For an LR sweep, change the scales and give each run a different `--run-tag`. |
 | `--conv-kind`, `--tf-kind` | see above | Any name in `python/katago/train/modelconfigs.py`. |
 | `--days`, `--end-date`, `--keep-rows` | 30, 2025-12-04, 50M | The archive index at https://katagoarchive.org/kata1/trainingdata/ shows which dates exist. |
+| `--data-source`, `--board-size` | `archive`, 19 | `teacher` generates data at `--board-size` with the `gen` stage; `archive` is the kata1 download and is 19x19 only. |
+| `--gen-rows`, `--gen-visits`, `--gen-cheap-visits`, `--gen-threads`, `--teacher-url` | 1M, 600, 100, 128, kata1-b18c384nbt | Teacher self-play settings. Any katagotraining.org `.bin.gz` URL works as the teacher; it is cached under `/teachers` on the volume. |
+| `--val-frac` | 0.05 | Fraction of generated files that become validation. Raise it for small test pools so the split holds at least a few batches. |
+| `--komi`, `--komi-auto` | fair komi by size, off | Evaluation komi. 0 means the size default (25 on 5x5, 9 on 7x7, else 7). |
 | `--visits`, `--games-per-bot`, `--checkpoints-per-run` | 200, 400, 7 | Elo standard error is roughly 350/sqrt(games) per bot. |
 | `--max-val-samples` | 500K | Validation rows scored per epoch. Lower it if validation time dominates. |
 | `--smoke-samples` | 8192 | Longer smoke runs (e.g. 131072) show whether both models learn and give `train.py` enough batches to log gradient norms. |
@@ -157,6 +207,7 @@ GPU it trains about 3x slower per sample than the convnet in fp32.
 /data/runs/<run>/exported/       .bin.gz files for the C++ engine
 /data/eval/<eval_name>/          match.cfg, sgfs/, elo.txt, elo.json, report.md, report.json
 /data/anchors/                   optional anchor nets you upload
+/data/teachers/                  cached teacher nets for the gen stage
 /data/smoke/<timestamp>/         artifacts of each smoke run
 ```
 
