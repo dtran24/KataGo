@@ -176,6 +176,7 @@ to change:
 | `--data-source`, `--board-size` | `archive`, 19 | `teacher` generates data at `--board-size` with the `gen` stage; `archive` is the kata1 download and is 19x19 only. |
 | `--gen-rows`, `--gen-visits`, `--gen-cheap-visits`, `--gen-cheap-prob`, `--teacher-url` | 1M, 600, 100, 0.75, kata1-b18c384nbt | Teacher self-play settings (`maxVisits`, `cheapSearchVisits`, `cheapSearchProb`). Cheap searches write no rows, so a lower `--gen-cheap-prob` yields more rows per game, at the price of more correlated rows from each game. Any katagotraining.org `.bin.gz` URL works as the teacher; it is cached under `/teachers` on the volume. |
 | `--gen-threads`, `--gen-nn-threads`, `--gen-cpu` | 512, 2, 8 | Engine concurrency for `gen`: game threads (`numGameThreads`, with `nnMaxBatchSize` = max(32, threads)), NN server threads (`numNNServerThreadsPerModel`), and the container's physical cores. Modal fixes resources per function, so `--gen-cpu` must be 8, 16 or 32 (one generation function is defined per size). |
+| `--gen-shards` | 1 | Number of L4 containers generating in parallel. Each targets `ceil(--gen-rows / N)` rows and copies finished files to `/data/shuffled/<dataset>.tmp/raw/shard_<i>/` every minute; one CPU container then shuffles the merged pool. Wall-clock drops about N-fold at the same cost per row. |
 | `--val-frac` | 0.05 | Fraction of generated files that become validation. Raise it for small test pools so the split holds at least a few batches. |
 | `--komi`, `--komi-auto` | fair komi by size, off | Evaluation komi. 0 means the size default (25 on 5x5, 9 on 7x7, else 7). |
 | `--visits`, `--games-per-bot`, `--checkpoints-per-run` | 200, 400, 7 | Elo standard error is roughly 350/sqrt(games) per bot. |
@@ -203,6 +204,7 @@ GPU it trains about 3x slower per sample than the convnet in fp32.
 
 ```
 /data/shuffled/<dataset>/{train,val,train.json,dataset.json}
+/data/shuffled/<dataset>/raw/shard_<i>/   raw self-play output of the gen stage (npz, sgfs, engine logs)
 /data/runs/<run>/train/          train.py checkpoints, metrics_train.json, metrics_val.json
 /data/runs/<run>/torchmodels/    exported torch checkpoints (<run>-s<samples>-d<rows>)
 /data/runs/<run>/exported/       .bin.gz files for the C++ engine

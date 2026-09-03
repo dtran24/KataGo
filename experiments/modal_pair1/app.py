@@ -94,7 +94,7 @@ SELFPLAY_TEMPLATE_CFG = f"{REMOTE_REPO}/cpp/configs/training/selfplay1_maxsize9.
 # Fair komi under area scoring for solved boards (5x5: Black wins by 25; 7x7: by 9), else 7.
 DEFAULT_KOMI_BY_SIZE = {5: 25.0, 7: 9.0}
 # Modal fixes a function's resources when it is defined, so the generation container exists at these
-# CPU sizes (physical cores; Modal gives 2 vCPUs per core) and --gen-cpu picks one. See GEN_FUNCTIONS.
+# CPU sizes (physical cores; Modal gives 2 vCPUs per core) and --gen-cpu picks one. See GEN_SHARD_FUNCTIONS.
 GEN_CPU_SIZES = (8, 16, 32)
 
 
@@ -656,26 +656,14 @@ def prepare_data(dataset: str, dates: list, keep_rows: int, val_keep_rows: int, 
     return manifest
 
 
-def _generate_teacher_data(dataset: str, board_size: int, teacher_url: str, target_rows: int, visits: int,
-                           cheap_visits: int, game_threads: int, nn_threads: int = 2, cheap_prob: float = 0.75,
-                           force: bool = False, val_frac: float = 0.05, cpu: int = 8) -> dict:
-    """Generate a fixed training pool at one board size by running `katago selfplay` with a released
-    net as the teacher, then shuffle it into /data/shuffled/<dataset>/{train,val} with pos_len = board_size.
-    Runs inside one of the generate_teacher_data_cpu* functions below."""
-    vol.reload()
-    out_root = dataset_dir(dataset)
-    manifest_path = f"{out_root}/dataset.json"
-    if os.path.exists(f"{out_root}/train.json") and not force:
-        print(f"Dataset already prepared at {out_root}; skipping (use --force-data to rebuild)", flush=True)
-        with open(manifest_path) as f:
-            return json.load(f)
-    shutil.rmtree(out_root + ".tmp", ignore_errors=True)
-    if force:
-        shutil.rmtree(out_root, ignore_errors=True)
-    tmp_out = out_root + ".tmp"
-    os.makedirs(tmp_out, exist_ok=True)
+# Modal list prices (September 2026), only used for the cost estimate written to the dataset manifest.
+MODAL_USD_PER_SEC = {"L4": 0.000222, "cpu_core": 0.0000131, "gib": 0.00000222}
+GEN_MEMORY_MB = 32768
+GEN_SYNC_INTERVAL_SEC = 60
 
-    # Teacher net, cached on the volume.
+
+def _teacher_cache(teacher_url: str) -> tuple:
+    """Download the teacher net into the volume cache if needed. Returns (cached path, net name)."""
     teacher_file = os.path.basename(urlparse(teacher_url).path)
     teacher_name = teacher_file[: -len(".bin.gz")] if teacher_file.endswith(".bin.gz") else teacher_file
     cached = f"{DATA}/teachers/{teacher_file}"
@@ -684,13 +672,189 @@ def _generate_teacher_data(dataset: str, board_size: int, teacher_url: str, targ
         subprocess.run(["wget", "-q", "--tries=3", "-O", cached + ".tmp", teacher_url], check=True)
         os.rename(cached + ".tmp", cached)
         vol.commit()
+    return cached, teacher_name
+
+
+def _sync_shard_output(local_dir: str, shard_dir: str, final: bool = False) -> int:
+    """Copy finished training files (and, when final, sgfs and logs) from the engine's local output
+    directory to the shard's directory on the volume, skipping files already there. The engine renames
+    each npz into place once complete, so anything ending in .npz is safe to copy while it runs."""
+    copied = 0
+    for dirpath, _, names in os.walk(local_dir):
+        rel = os.path.relpath(dirpath, local_dir)
+        for n in names:
+            if not (n.endswith(".npz") or (final and not n.endswith(".tmp"))):
+                continue
+            dst = os.path.join(shard_dir, rel, n)
+            if os.path.exists(dst):
+                continue
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copyfile(os.path.join(dirpath, n), dst + ".part")
+            os.rename(dst + ".part", dst)
+            copied += 1
+    return copied
+
+
+def _generate_teacher_shard(dataset: str, shard: int, num_shards: int, teacher_file: str, target_rows: int,
+                            overrides: dict) -> dict:
+    """One L4 container: play self-play games with the teacher until this shard holds target_rows rows.
+    The engine writes to local disk; finished npz files are copied to
+    /data/shuffled/<dataset>.tmp/raw/shard_<i>/ every GEN_SYNC_INTERVAL_SEC, so a killed container keeps
+    all but its last minute of rows. Returns per-shard throughput statistics."""
+    import resource
+    import threading
+
+    teacher_name = teacher_file[: -len(".bin.gz")] if teacher_file.endswith(".bin.gz") else teacher_file
+    shard_dir = f"{dataset_dir(dataset)}.tmp/raw/shard_{shard:02d}"
+    os.makedirs(shard_dir, exist_ok=True)
     models_dir = "/tmp/gen/models"
     os.makedirs(f"{models_dir}/{teacher_name}", exist_ok=True)
-    shutil.copy(cached, f"{models_dir}/{teacher_name}/model.bin.gz")
-
-    # Self-play config: the repo's small-board template with size, search and threading overridden.
+    shutil.copy(f"{DATA}/teachers/{teacher_file}", f"{models_dir}/{teacher_name}/model.bin.gz")
     cfg_path = "/tmp/gen/selfplay.cfg"
     shutil.copy(SELFPLAY_TEMPLATE_CFG, cfg_path)
+    override_str = ",".join(f"{k}={v}" for k, v in overrides.items())
+    out_dir = "/tmp/gen/selfplay"
+    os.makedirs(out_dir, exist_ok=True)
+    log_path = f"{out_dir}/selfplay_stdout.txt"
+    board_size, cheap_prob, game_threads = overrides["dataBoardLen"], overrides["cheapSearchProb"], overrides["numGameThreads"]
+
+    stop = threading.Event()
+
+    def syncer():
+        while not stop.wait(GEN_SYNC_INTERVAL_SEC):
+            try:
+                _sync_shard_output(out_dir, shard_dir)
+            except Exception as e:  # the final sync below retries; keep generating
+                print(f"shard {shard}: sync warning: {e}", flush=True)
+
+    # Only moves with positive training weight are written (cheap searches have weight 0), so a game
+    # yields about (1 - cheapSearchProb) of its moves as rows: 6.2 rows per 5x5 game measured at 0.75.
+    # Generate in chunks and re-estimate rows per game.
+    rows_per_game = max(3.0, (1.0 - float(cheap_prob)) * board_size * board_size)
+    rows, files, total_games, chunk = 0, 0, 0, 0
+    ru0 = resource.getrusage(resource.RUSAGE_CHILDREN)
+    t0 = time.time()
+    sync_thread = threading.Thread(target=syncer, daemon=True)
+    sync_thread.start()
+    try:
+        while rows < target_rows and chunk < 4:
+            games = max(int(game_threads), int(math.ceil((target_rows - rows) / rows_per_game * 1.1)))
+            run_cmd(
+                [
+                    KATAGO_BIN, "selfplay",
+                    "-models-dir", models_dir,
+                    "-output-dir", out_dir,
+                    "-config", cfg_path,
+                    "-override-config", override_str,
+                    "-max-games-total", games,
+                ],
+                cwd="/tmp/gen",
+                log_path=log_path,
+            )
+            total_games += games
+            chunk += 1
+            rows, files = count_npz_rows(out_dir)
+            rows_per_game = max(1.0, rows / max(1, total_games))
+            print(f"shard {shard}/{num_shards} chunk {chunk}: {total_games} games, {rows:,} rows in {files} files, "
+                  f"{rows_per_game:.1f} rows/game, {rows/(time.time()-t0):.0f} rows/s", flush=True)
+    finally:
+        stop.set()
+        sync_thread.join()
+    gen_sec = time.time() - t0
+    ru1 = resource.getrusage(resource.RUSAGE_CHILDREN)
+    cpu_sec = (ru1.ru_utime - ru0.ru_utime) + (ru1.ru_stime - ru0.ru_stime)
+    with open(log_path) as f:
+        log = f.read()
+    nn_rows = sum(int(x) for x in re.findall(r"Final NN rows: (\d+)", log))
+    nn_batches = sum(int(x) for x in re.findall(r"Final NN batches: (\d+)", log))
+    synced = _sync_shard_output(out_dir, shard_dir, final=True)
+    vol.commit()
+    stats = {
+        "shard": shard,
+        "rows": rows,
+        "files": files,
+        "games": total_games,
+        "chunks": chunk,
+        "gen_sec": round(gen_sec, 1),
+        "cpu_sec": round(cpu_sec, 1),
+        "nn_evals": nn_rows,
+        "nn_batches": nn_batches,
+        "synced_files": synced,
+    }
+    print(f"shard {shard}/{num_shards} done: {json.dumps(stats)}", flush=True)
+    return stats
+
+
+# One shard function per CPU size (Modal fixes resources per function); --gen-cpu picks one. Each
+# takes the keyword arguments of _generate_teacher_shard as a dict so it works with .map.
+@app.function(image=image, gpu="L4", cpu=8.0, memory=GEN_MEMORY_MB, timeout=12 * 3600, volumes={DATA: vol})
+def generate_teacher_shard_cpu8(args: dict) -> dict:
+    return _generate_teacher_shard(**args)
+
+
+@app.function(image=image, gpu="L4", cpu=16.0, memory=GEN_MEMORY_MB, timeout=12 * 3600, volumes={DATA: vol})
+def generate_teacher_shard_cpu16(args: dict) -> dict:
+    return _generate_teacher_shard(**args)
+
+
+@app.function(image=image, gpu="L4", cpu=32.0, memory=GEN_MEMORY_MB, timeout=12 * 3600, volumes={DATA: vol})
+def generate_teacher_shard_cpu32(args: dict) -> dict:
+    return _generate_teacher_shard(**args)
+
+
+GEN_SHARD_FUNCTIONS = {8: generate_teacher_shard_cpu8, 16: generate_teacher_shard_cpu16, 32: generate_teacher_shard_cpu32}
+assert tuple(GEN_SHARD_FUNCTIONS) == GEN_CPU_SIZES
+
+
+@app.function(image=image, cpu=8.0, memory=32768, timeout=4 * 3600, volumes={DATA: vol})
+def shuffle_teacher_pool(dataset: str, manifest: dict) -> dict:
+    """Shuffle the merged raw shard output of a dataset into train/val and finalize the dataset directory.
+    The raw files stay under <dataset>/raw so the pool can be reshuffled (e.g. with another --val-frac)."""
+    vol.reload()
+    out_root = dataset_dir(dataset)
+    tmp_out = out_root + ".tmp"
+    raw_dir = f"{tmp_out}/raw"
+    rows, files = count_npz_rows(raw_dir)
+    reported = sum(s["rows"] for s in manifest["shards_stats"])
+    if rows != reported:
+        print(f"WARNING: shards reported {reported:,} rows but {rows:,} are on the volume", flush=True)
+    shuffle_pool(raw_dir, tmp_out, "all", "all", num_waves=4 if rows >= 2_000_000 else 1, val_frac=manifest["val_frac"])
+    manifest = {
+        **manifest,
+        "raw_rows": rows,
+        "raw_npz_files": files,
+        **split_counts(tmp_out),
+        "created": _dt.datetime.utcnow().isoformat() + "Z",
+    }
+    with open(f"{tmp_out}/dataset.json", "w") as f:
+        json.dump(manifest, f, indent=2)
+    os.rename(tmp_out, out_root)
+    vol.commit()
+    print(json.dumps(manifest, indent=2), flush=True)
+    return manifest
+
+
+def generate_teacher_data(dataset: str, board_size: int, teacher_url: str, target_rows: int, visits: int,
+                          cheap_visits: int, game_threads: int, nn_threads: int = 2, cheap_prob: float = 0.75,
+                          force: bool = False, val_frac: float = 0.05, cpu: int = 8, shards: int = 1) -> dict:
+    """Generate a fixed training pool at one board size: `shards` L4 containers run `katago selfplay` with a
+    released net as the teacher, each writing ceil(target_rows / shards) rows of raw files to the volume, then
+    one CPU container shuffles the merged pool into /data/shuffled/<dataset>/{train,val} with
+    pos_len = board_size. Runs inside run_pipeline's container, which has the volume mounted."""
+    vol.reload()
+    out_root = dataset_dir(dataset)
+    if os.path.exists(f"{out_root}/train.json") and not force:
+        print(f"Dataset already prepared at {out_root}; skipping (use --force-data to rebuild)", flush=True)
+        with open(f"{out_root}/dataset.json") as f:
+            return json.load(f)
+    tmp_out = out_root + ".tmp"
+    shutil.rmtree(tmp_out, ignore_errors=True)
+    if force:
+        shutil.rmtree(out_root, ignore_errors=True)
+    os.makedirs(f"{tmp_out}/raw", exist_ok=True)
+    cached, teacher_name = _teacher_cache(teacher_url)
+
+    # Self-play config: the repo's small-board template with size, search and threading overridden.
     overrides = {
         "bSizes": int(board_size),
         "bSizeRelProbs": 1,
@@ -710,42 +874,31 @@ def _generate_teacher_data(dataset: str, board_size: int, teacher_url: str, targ
         "maxRowsPerTrainFile": max(100, min(1000, int(target_rows) // 200)),
         "logGamesEvery": 100,
     }
-    override_str = ",".join(f"{k}={v}" for k, v in overrides.items())
-    shutil.copy(cfg_path, f"{tmp_out}/selfplay.cfg")
+    shutil.copy(SELFPLAY_TEMPLATE_CFG, f"{tmp_out}/selfplay.cfg")
     with open(f"{tmp_out}/selfplay_overrides.txt", "w") as f:
-        f.write(override_str + "\n")
+        f.write(",".join(f"{k}={v}" for k, v in overrides.items()) + "\n")
+    vol.commit()
 
-    # Only moves with positive training weight are written (cheap searches have weight 0), so a game
-    # yields about (1 - cheapSearchProb) of its moves as rows: 6.2 rows per 5x5 game measured at 0.75.
-    # Generate in chunks and re-estimate rows per game.
-    out_dir = "/tmp/gen/selfplay"
-    os.makedirs(out_dir, exist_ok=True)
-    rows_per_game = max(3.0, (1.0 - float(cheap_prob)) * board_size * board_size)
-    rows, files, total_games, chunk = 0, 0, 0, 0
+    per_shard = int(math.ceil(target_rows / shards))
+    shard_args = [
+        dict(dataset=dataset, shard=i, num_shards=shards, teacher_file=os.path.basename(cached),
+             target_rows=per_shard, overrides=overrides)
+        for i in range(shards)
+    ]
+    print(f"Generating {target_rows:,} rows of {board_size}x{board_size} with {teacher_name}: {shards} shard(s) of "
+          f"{per_shard:,} rows on L4 containers with {cpu} cores, {game_threads} game threads, {nn_threads} NN threads",
+          flush=True)
     t0 = time.time()
-    while rows < target_rows and chunk < 4:
-        games = max(int(game_threads), int(math.ceil((target_rows - rows) / rows_per_game * 1.1)))
-        run_cmd(
-            [
-                KATAGO_BIN, "selfplay",
-                "-models-dir", models_dir,
-                "-output-dir", out_dir,
-                "-config", cfg_path,
-                "-override-config", override_str,
-                "-max-games-total", games,
-            ],
-            cwd="/tmp/gen",
-            log_path=f"{tmp_out}/selfplay_stdout.txt",
-        )
-        total_games += games
-        chunk += 1
-        rows, files = count_npz_rows(out_dir)
-        rows_per_game = max(1.0, rows / max(1, total_games))
-        print(f"chunk {chunk}: {total_games} games, {rows:,} rows in {files} files, {rows_per_game:.1f} rows/game, "
-              f"{rows/(time.time()-t0):.0f} rows/s", flush=True)
-    gen_sec = time.time() - t0
-
-    shuffle_pool(out_dir, tmp_out, "all", "all", num_waves=4 if rows >= 2_000_000 else 1, val_frac=val_frac)
+    shard_stats = list(GEN_SHARD_FUNCTIONS[cpu].map(shard_args))
+    wall_sec = time.time() - t0
+    rows = sum(s["rows"] for s in shard_stats)
+    games = sum(s["games"] for s in shard_stats)
+    container_sec = sum(s["gen_sec"] for s in shard_stats)
+    cpu_sec = sum(s["cpu_sec"] for s in shard_stats)
+    nn_evals = sum(s["nn_evals"] for s in shard_stats)
+    nn_batches = sum(s["nn_batches"] for s in shard_stats)
+    usd_per_container_sec = (MODAL_USD_PER_SEC["L4"] + cpu * MODAL_USD_PER_SEC["cpu_core"]
+                             + GEN_MEMORY_MB / 1024 * MODAL_USD_PER_SEC["gib"])
     manifest = {
         "dataset": dataset,
         "source": "teacher-selfplay",
@@ -754,50 +907,35 @@ def _generate_teacher_data(dataset: str, board_size: int, teacher_url: str, targ
         "teacher": teacher_name,
         "teacher_url": teacher_url,
         "target_rows": target_rows,
-        "raw_rows": rows,
-        "raw_npz_files": files,
-        "games": total_games,
-        "rows_per_game": rows_per_game,
+        "games": games,
+        "rows_per_game": round(rows / max(1, games), 2),
         "visits": visits,
         "cheap_visits": cheap_visits,
         "cheap_prob": cheap_prob,
         "game_threads": game_threads,
         "nn_threads": nn_threads,
         "cpu": cpu,
+        "shards": shards,
         "val_frac": val_frac,
-        "generation_sec": round(gen_sec),
-        "rows_per_sec": round(rows / max(1.0, gen_sec), 1),
+        # Wall-clock of the generation step vs. summed generation time across shard containers
+        # (container start-up, teacher copy and the final sync add roughly a minute per container).
+        "generation_sec": round(wall_sec),
+        "container_sec": round(container_sec),
+        "rows_per_sec": round(rows / max(1.0, wall_sec), 1),
+        "rows_per_container_sec": round(rows / max(1.0, container_sec), 1),
+        "nn_evals": nn_evals,
+        "nn_avg_batch": round(nn_evals / max(1, nn_batches), 1),
+        "nn_evals_per_sec": round(nn_evals / max(1.0, container_sec)),
+        "nn_evals_per_row": round(nn_evals / max(1, rows)),
+        "cpu_cores_avg": round(cpu_sec / max(1.0, container_sec), 2),
+        "est_gen_cost_usd": round(container_sec * usd_per_container_sec, 3),
+        "est_usd_per_1m_rows": round(1e6 / max(1, rows) * container_sec * usd_per_container_sec, 2),
         "overrides": overrides,
-        **split_counts(tmp_out),
-        "created": _dt.datetime.utcnow().isoformat() + "Z",
+        "shards_stats": shard_stats,
     }
-    with open(f"{tmp_out}/dataset.json", "w") as f:
-        json.dump(manifest, f, indent=2)
-    os.rename(tmp_out, out_root)
-    vol.commit()
-    print(json.dumps(manifest, indent=2), flush=True)
-    return manifest
-
-
-# One generation function per CPU size (Modal resources are fixed per function). Each takes the
-# keyword arguments of _generate_teacher_data as a dict so run_pipeline can pick one by --gen-cpu.
-@app.function(image=image, gpu="L4", cpu=8.0, memory=32768, timeout=12 * 3600, volumes={DATA: vol})
-def generate_teacher_data_cpu8(args: dict) -> dict:
-    return _generate_teacher_data(**args)
-
-
-@app.function(image=image, gpu="L4", cpu=16.0, memory=32768, timeout=12 * 3600, volumes={DATA: vol})
-def generate_teacher_data_cpu16(args: dict) -> dict:
-    return _generate_teacher_data(**args)
-
-
-@app.function(image=image, gpu="L4", cpu=32.0, memory=32768, timeout=12 * 3600, volumes={DATA: vol})
-def generate_teacher_data_cpu32(args: dict) -> dict:
-    return _generate_teacher_data(**args)
-
-
-GEN_FUNCTIONS = {8: generate_teacher_data_cpu8, 16: generate_teacher_data_cpu16, 32: generate_teacher_data_cpu32}
-assert tuple(GEN_FUNCTIONS) == GEN_CPU_SIZES
+    print(json.dumps({k: v for k, v in manifest.items() if k not in ("overrides", "shards_stats")}, indent=2),
+          flush=True)
+    return shuffle_teacher_pool.remote(dataset, manifest)
 
 
 @app.function(image=image, gpu="H100", cpu=8.0, memory=32768, timeout=24 * 3600, volumes={DATA: vol})
@@ -942,12 +1080,11 @@ def run_pipeline(p: dict) -> dict:
     out = {"params": p}
 
     if stage == "gen" or (stage in ("data", "all") and p["data_source"] == "teacher"):
-        out["data"] = GEN_FUNCTIONS[p["gen_cpu"]].remote(dict(
-            dataset=p["dataset"], board_size=p["board_size"], teacher_url=p["teacher_url"],
-            target_rows=p["gen_rows"], visits=p["gen_visits"], cheap_visits=p["gen_cheap_visits"],
-            game_threads=p["gen_threads"], nn_threads=p["gen_nn_threads"], cheap_prob=p["gen_cheap_prob"],
-            force=p["force_data"], val_frac=p["val_frac"], cpu=p["gen_cpu"],
-        ))
+        out["data"] = generate_teacher_data(
+            p["dataset"], p["board_size"], p["teacher_url"], p["gen_rows"], p["gen_visits"], p["gen_cheap_visits"],
+            p["gen_threads"], nn_threads=p["gen_nn_threads"], cheap_prob=p["gen_cheap_prob"], force=p["force_data"],
+            val_frac=p["val_frac"], cpu=p["gen_cpu"], shards=p["gen_shards"],
+        )
     elif stage in ("data", "all"):
         out["data"] = prepare_data.remote(p["dataset"], p["dates"], p["keep_rows"], p["val_keep_rows"], p["force_data"])
 
@@ -1050,6 +1187,7 @@ def main(
     gen_threads: int = 512,
     gen_nn_threads: int = 2,
     gen_cpu: int = 8,
+    gen_shards: int = 1,
     val_frac: float = 0.05,
     end_date: str = "2025-12-04",
     days: int = 30,
@@ -1104,6 +1242,8 @@ def main(
         raise SystemExit("--gen-cheap-visits must not exceed --gen-visits")
     if gen_cpu not in GEN_CPU_SIZES:
         raise SystemExit(f"--gen-cpu must be one of {GEN_CPU_SIZES}")
+    if gen_shards < 1:
+        raise SystemExit("--gen-shards must be positive")
     if data_source == "archive" and board_size != 19:
         raise SystemExit("--board-size other than 19 requires --data-source teacher (the kata1 archive is 19x19 data)")
     if not dataset:
@@ -1145,6 +1285,7 @@ def main(
         "gen_threads": gen_threads,
         "gen_nn_threads": gen_nn_threads,
         "gen_cpu": gen_cpu,
+        "gen_shards": gen_shards,
         "val_frac": val_frac,
         "komi": komi,
         "komi_auto": komi_auto,
