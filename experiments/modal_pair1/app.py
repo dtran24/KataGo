@@ -390,6 +390,10 @@ def run_match(eval_root, bots, secondary_idxs, visits, games_per_bot, game_threa
     num_games = max(1, games_per_bot * primary // 2)
     cfg_path = f"{eval_root}/match.cfg"
     sgf_dir = f"{eval_root}/sgfs"
+    # Start from an empty sgf dir: katago match appends one .sgfs file per game thread, so a re-run into the
+    # same eval_root (Modal restarts a preempted container with the same input) would otherwise fold the
+    # earlier attempt's games into the Elo computation and double-count them.
+    shutil.rmtree(sgf_dir, ignore_errors=True)
     os.makedirs(sgf_dir, exist_ok=True)
     write_match_config(cfg_path, bots, secondary_idxs, visits, num_games, game_threads, board_size, komi, komi_auto)
     with open(f"{eval_root}/bots.json", "w") as f:
