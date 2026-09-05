@@ -2956,6 +2956,7 @@ class MetadataEncoder(torch.nn.Module):
 _BLOCK_KIND_FLAGS = {
     # (uses_gab, uses_tab)
     "un0":                                  (False, False),
+    "fno":                                  (False, False),
     "regular":                              (False, False),
     "bottle1":                              (False, False),
     "bottle":                               (False, False),
@@ -3163,6 +3164,9 @@ class Model(torch.nn.Module):
             if block_kind == "un0":
                 from .un0 import Un0Block
                 self.blocks.append(Un0Block(block_name, self.c_trunk, self.config, pos_len))
+            elif block_kind == "fno":
+                from .fno import FNOBlock
+                self.blocks.append(FNOBlock(block_name, self.c_trunk, self.config, pos_len))
             elif block_kind == "regular":
                 self.blocks.append(ResBlock(
                     name=block_name,

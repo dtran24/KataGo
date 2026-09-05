@@ -2148,3 +2148,14 @@ un0_5x5.update({
     "un0_solver": "euler",
 })
 config_of_name["un0-b5c192-n1250-e10"] = un0_5x5
+
+# Five residual Fourier operator bottlenecks; fixed-board Python-only pilot.
+fno_5x5 = config_of_name["b5c192nbt-fson-mish-rvglr-bnh"].copy()
+fno_5x5.update({
+    "block_kind": [[f"fno{i}", "fno"] for i in range(5)],
+    "intermediate_head_blocks": 5,
+    "fno_channels": 112,
+    "fno_modes": 2,
+    "fno_padding": 1,
+})
+config_of_name["fno-b5c192-w112-m2-p1"] = fno_5x5
