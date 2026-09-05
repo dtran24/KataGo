@@ -1,0 +1,80 @@
+{
+  "bots": [
+    {
+      "name": "pair1-b5-conv-s2-s1114112",
+      "path": "/data/runs/pair1-b5-conv-s2/exported/pair1-b5-conv-s2-s1114112-d1048600/model.bin.gz",
+      "run": "pair1-b5-conv-s2"
+    },
+    {
+      "name": "pair1-b5-conv-s2-s2158592",
+      "path": "/data/runs/pair1-b5-conv-s2/exported/pair1-b5-conv-s2-s2158592-d1048600/model.bin.gz",
+      "run": "pair1-b5-conv-s2"
+    },
+    {
+      "name": "pair1-b5-conv-s2-s3133440",
+      "path": "/data/runs/pair1-b5-conv-s2/exported/pair1-b5-conv-s2-s3133440-d1048600/model.bin.gz",
+      "run": "pair1-b5-conv-s2"
+    },
+    {
+      "name": "pair1-b5-conv-s2-s5152768",
+      "path": "/data/runs/pair1-b5-conv-s2/exported/pair1-b5-conv-s2-s5152768-d1048600/model.bin.gz",
+      "run": "pair1-b5-conv-s2"
+    },
+    {
+      "name": "pair1-b5-conv-s2-s8216576",
+      "path": "/data/runs/pair1-b5-conv-s2/exported/pair1-b5-conv-s2-s8216576-d1048600/model.bin.gz",
+      "run": "pair1-b5-conv-s2"
+    },
+    {
+      "name": "pair1-b5-conv-s2-s12185600",
+      "path": "/data/runs/pair1-b5-conv-s2/exported/pair1-b5-conv-s2-s12185600-d1048600/model.bin.gz",
+      "run": "pair1-b5-conv-s2"
+    },
+    {
+      "name": "pair1-b5-conv-s2-s20332544",
+      "path": "/data/runs/pair1-b5-conv-s2/exported/pair1-b5-conv-s2-s20332544-d1048600/model.bin.gz",
+      "run": "pair1-b5-conv-s2"
+    },
+    {
+      "name": "pair1-b5-tf-s2-s1114112",
+      "path": "/data/runs/pair1-b5-tf-s2/exported/pair1-b5-tf-s2-s1114112-d1048600/model.bin.gz",
+      "run": "pair1-b5-tf-s2"
+    },
+    {
+      "name": "pair1-b5-tf-s2-s2158592",
+      "path": "/data/runs/pair1-b5-tf-s2/exported/pair1-b5-tf-s2-s2158592-d1048600/model.bin.gz",
+      "run": "pair1-b5-tf-s2"
+    },
+    {
+      "name": "pair1-b5-tf-s2-s3133440",
+      "path": "/data/runs/pair1-b5-tf-s2/exported/pair1-b5-tf-s2-s3133440-d1048600/model.bin.gz",
+      "run": "pair1-b5-tf-s2"
+    },
+    {
+      "name": "pair1-b5-tf-s2-s5152768",
+      "path": "/data/runs/pair1-b5-tf-s2/exported/pair1-b5-tf-s2-s5152768-d1048600/model.bin.gz",
+      "run": "pair1-b5-tf-s2"
+    },
+    {
+      "name": "pair1-b5-tf-s2-s8216576",
+      "path": "/data/runs/pair1-b5-tf-s2/exported/pair1-b5-tf-s2-s8216576-d1048600/model.bin.gz",
+      "run": "pair1-b5-tf-s2"
+    },
+    {
+      "name": "pair1-b5-tf-s2-s12185600",
+      "path": "/data/runs/pair1-b5-tf-s2/exported/pair1-b5-tf-s2-s12185600-d1048600/model.bin.gz",
+      "run": "pair1-b5-tf-s2"
+    },
+    {
+      "name": "pair1-b5-tf-s2-s20332544",
+      "path": "/data/runs/pair1-b5-tf-s2/exported/pair1-b5-tf-s2-s20332544-d1048600/model.bin.gz",
+      "run": "pair1-b5-tf-s2"
+    }
+  ],
+  "secondary": [],
+  "visits": 100,
+  "num_games": 2800,
+  "board_size": 5,
+  "komi": 25.0,
+  "komi_auto": false
+}

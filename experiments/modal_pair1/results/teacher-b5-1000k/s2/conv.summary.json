@@ -1,0 +1,35 @@
+{
+  "run_name": "pair1-b5-conv-s2",
+  "model_kind": "b5c192nbt-fson-mish-rvglr-bnh",
+  "elapsed_sec": 909,
+  "val_epochs_logged": 40,
+  "last_val": {
+    "nsamp_train": 20332544.0,
+    "p0loss": 1.253959813117981,
+    "vloss": 0.08958271026611328,
+    "pacc1": 0.74123046875,
+    "loss": 23.677401580810546
+  },
+  "exports": [
+    "pair1-b5-conv-s2-s10235904-d1048600",
+    "pair1-b5-conv-s2-s1114112-d1048600",
+    "pair1-b5-conv-s2-s11210752-d1048600",
+    "pair1-b5-conv-s2-s12185600-d1048600",
+    "pair1-b5-conv-s2-s13299712-d1048600",
+    "pair1-b5-conv-s2-s14344192-d1048600",
+    "pair1-b5-conv-s2-s15319040-d1048600",
+    "pair1-b5-conv-s2-s16363520-d1048600",
+    "pair1-b5-conv-s2-s17408000-d1048600",
+    "pair1-b5-conv-s2-s18382848-d1048600",
+    "pair1-b5-conv-s2-s19357696-d1048600",
+    "pair1-b5-conv-s2-s20332544-d1048600",
+    "pair1-b5-conv-s2-s2158592-d1048600",
+    "pair1-b5-conv-s2-s3133440-d1048600",
+    "pair1-b5-conv-s2-s4108288-d1048600",
+    "pair1-b5-conv-s2-s5152768-d1048600",
+    "pair1-b5-conv-s2-s6197248-d1048600",
+    "pair1-b5-conv-s2-s7172096-d1048600",
+    "pair1-b5-conv-s2-s8216576-d1048600",
+    "pair1-b5-conv-s2-s9191424-d1048600"
+  ]
+}

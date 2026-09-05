@@ -1,0 +1,35 @@
+{
+  "run_name": "pair1-b5-tf-s3",
+  "model_kind": "b5c192h3nbttfrs-fson-silu-rsnh",
+  "elapsed_sec": 1067,
+  "val_epochs_logged": 41,
+  "last_val": {
+    "nsamp_train": 20402176.0,
+    "p0loss": 1.253690104484558,
+    "vloss": 0.08938553869724274,
+    "pacc1": 0.7464453125,
+    "loss": 23.681356887817383
+  },
+  "exports": [
+    "pair1-b5-tf-s3-s10932224-d1048600",
+    "pair1-b5-tf-s3-s11907072-d1048600",
+    "pair1-b5-tf-s3-s12951552-d1048600",
+    "pair1-b5-tf-s3-s13996032-d1048600",
+    "pair1-b5-tf-s3-s14970880-d1048600",
+    "pair1-b5-tf-s3-s15945728-d1048600",
+    "pair1-b5-tf-s3-s16990208-d1048600",
+    "pair1-b5-tf-s3-s17965056-d1048600",
+    "pair1-b5-tf-s3-s18939904-d1048600",
+    "pair1-b5-tf-s3-s19914752-d1048600",
+    "pair1-b5-tf-s3-s2019328-d1048600",
+    "pair1-b5-tf-s3-s2994176-d1048600",
+    "pair1-b5-tf-s3-s4038656-d1048600",
+    "pair1-b5-tf-s3-s5013504-d1048600",
+    "pair1-b5-tf-s3-s6057984-d1048600",
+    "pair1-b5-tf-s3-s7032832-d1048600",
+    "pair1-b5-tf-s3-s8007680-d1048600",
+    "pair1-b5-tf-s3-s8982528-d1048600",
+    "pair1-b5-tf-s3-s974848-d1048600",
+    "pair1-b5-tf-s3-s9957376-d1048600"
+  ]
+}

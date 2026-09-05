@@ -279,6 +279,17 @@ GPU it trains about 3x slower per sample than the convnet in fp32.
 Browse with `modal volume ls katago-pair1 <path>` and download with
 `modal volume get katago-pair1 <remote> <local>`.
 
+## Results so far
+
+[results/teacher-b5-1000k/README.md](results/teacher-b5-1000k/README.md): three
+seeds on a 1M-row 5x5 teacher pool (20M samples per run, 2,800-game evals). Per-seed
+reports, Elo files and metrics are checked in next to it, and `cross_seed.py`
+rebuilds the cross-seed tables from them:
+
+```bash
+python experiments/modal_pair1/cross_seed.py experiments/modal_pair1/results/teacher-b5-1000k 1 2 3
+```
+
 ## Caveats
 
 - The two runs share a seed and data order but GPU training is not bit-for-bit

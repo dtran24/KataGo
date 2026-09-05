@@ -1,0 +1,110 @@
+{
+  "dataset": "teacher-b5-1000k",
+  "source": "teacher-selfplay",
+  "board_size": 5,
+  "pos_len": 5,
+  "teacher": "kata1-b18c384nbt-s9996604416-d4316597426",
+  "teacher_url": "https://media.katagotraining.org/uploaded/networks/models/kata1/kata1-b18c384nbt-s9996604416-d4316597426.bin.gz",
+  "target_rows": 1000000,
+  "games": 88000,
+  "rows_per_game": 11.92,
+  "visits": 200,
+  "cheap_visits": 50,
+  "cheap_prob": 0.5,
+  "game_threads": 512,
+  "nn_threads": 2,
+  "cpu": 8,
+  "shards": 4,
+  "val_frac": 0.05,
+  "generation_sec": 1354,
+  "container_sec": 5301,
+  "rows_per_sec": 774.7,
+  "rows_per_container_sec": 197.8,
+  "nn_evals": 131008691,
+  "nn_avg_batch": 174.1,
+  "nn_evals_per_sec": 24712,
+  "nn_evals_per_row": 125,
+  "cpu_cores_avg": 5.69,
+  "est_gen_cost_usd": 2.109,
+  "est_usd_per_1m_rows": 2.01,
+  "overrides": {
+    "bSizes": 5,
+    "bSizeRelProbs": 1,
+    "allowRectangleProb": 0.0,
+    "dataBoardLen": 5,
+    "maxVisits": 200,
+    "cheapSearchVisits": 50,
+    "cheapSearchProb": 0.5,
+    "numGameThreads": 512,
+    "nnMaxBatchSize": 512,
+    "numNNServerThreadsPerModel": 2,
+    "handicapProb": 0.0,
+    "maxRowsPerTrainFile": 1000,
+    "logGamesEvery": 100
+  },
+  "shards_stats": [
+    {
+      "shard": 0,
+      "rows": 261864,
+      "files": 263,
+      "games": 22000,
+      "chunks": 1,
+      "gen_sec": 1316.7,
+      "cpu_sec": 7247.0,
+      "nn_evals": 32683005,
+      "nn_batches": 182959,
+      "synced_files": 16
+    },
+    {
+      "shard": 1,
+      "rows": 262027,
+      "files": 263,
+      "games": 22000,
+      "chunks": 1,
+      "gen_sec": 1342.3,
+      "cpu_sec": 8511.6,
+      "nn_evals": 32770234,
+      "nn_batches": 201737,
+      "synced_files": 6
+    },
+    {
+      "shard": 2,
+      "rows": 262242,
+      "files": 264,
+      "games": 22000,
+      "chunks": 1,
+      "gen_sec": 1308.1,
+      "cpu_sec": 7419.6,
+      "nn_evals": 32775334,
+      "nn_batches": 181398,
+      "synced_files": 14
+    },
+    {
+      "shard": 3,
+      "rows": 262467,
+      "files": 264,
+      "games": 22000,
+      "chunks": 1,
+      "gen_sec": 1334.3,
+      "cpu_sec": 6994.6,
+      "nn_evals": 32780118,
+      "nn_batches": 186379,
+      "synced_files": 6
+    }
+  ],
+  "raw_rows": 1048600,
+  "raw_npz_files": 1054,
+  "train": {
+    "files": 14,
+    "bytes": 265636115
+  },
+  "val": {
+    "files": 1,
+    "bytes": 16927494
+  },
+  "train_range": [
+    0,
+    1048600
+  ],
+  "created": "2026-09-03T20:28:31.859132Z"
+}
