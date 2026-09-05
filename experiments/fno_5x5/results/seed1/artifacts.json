@@ -1,0 +1,30 @@
+{
+  "files_sha256": {
+    "README.md": "024076233f9434f2ef69c04a8c0d6ade17dcfc60369cdce85588925ea38d2500",
+    "curves.png": "2b9d6c94487a2ba4a9ddc4afb90346e98ac370c67a9dd979c25508e3da9f4be4",
+    "diag/dataset.json": "3d0ae0b522c8d318b216d7932557a3b8517360bb666752c6686588e12f81eb8d",
+    "diag/fno.txt": "b45a45320334ed2440a9d8a28b88f0fac888fc3d97ed4872d2a0e2f53b6eb69f",
+    "diag/provenance.json": "0dbcc76493e2ecd5c262339a77d38f752efb323403e12720c8a0db40a30e1b3f",
+    "diagnostics.json": "4964b99867a751d1059ab1c6ba2a1f21f0df533b5e41d4aa674ca5a8a4651e28",
+    "evaluation-provenance.json": "5d027d5dce5c8a4ff0a7fb6c2b04ebb3b235a31e5f29c73ed79e5fe90e784d98",
+    "fno.metrics_train.json": "2573c0564a484746c2f3f12d574ea7b16b034300e48daa5e4593b785febb6bc2",
+    "fno.metrics_val.json": "90f0afcf9eefc3e49c7d60cc37d8cd289287806e01d5186f488f5ae8998a9828",
+    "fno.summary.json": "79a8d21468f4dcc0cd77dec1ae26b32b3da392761f8fde1d2f78c4b680ada551",
+    "launch.json": "abef8a854c63b3f9fc42d1c33481782d92c6e655515af7ea51dee2560ba58c0a",
+    "report.json": "f73816e455bbb2a61c3bdef877fa38221d173c2969a2296ce97760bc08ae7097",
+    "study.json": "7c043b6700b36b0f960382d9aaca7a9d906b104d049326cae4932d358b5c72b0"
+  },
+  "shared_audit_masks": {
+    "path": "experiments/un0_5x5/results/seed1/data-audit.masks.npz",
+    "sha256": "b82d6ac677b0d8d39f7b9db3ddeec25937bd0e2d980e4e74c9c195b0a3bfdb47"
+  },
+  "verified": [
+    "all four final checkpoints: 20,123,648 samples, 63,000 validation rows, eight D4 transforms",
+    "44,514 rows in the same frozen secondary subset",
+    "prior checkpoint digests, all reported baseline metrics, and dataset/audit match the prior evaluation exactly",
+    "80 training and 40 validation metric records contain only finite numeric values",
+    "training source unchanged after launch; report formatter updated separately",
+    "training log has normal endpoint and no warnings/errors/preemption",
+    "all three FNO apps stopped with zero tasks"
+  ]
+}

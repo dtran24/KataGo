@@ -1,0 +1,62 @@
+{
+  "training_app": "ap-pxLvikaJrzstBfAiMJ5Ut8",
+  "orchestrator_call": "fc-01M1S9B2R13NAE5NY4DM13MAF4",
+  "seed1_call": "fc-01M1S9B6C5DRM9JPBQRZAENNX3",
+  "diagnostic_app": "ap-OV7j4tefFVXWrFJqdjLUob",
+  "seeds": [
+    1
+  ],
+  "status": "complete",
+  "retries": 0,
+  "diagnostic": {
+    "samples_per_second": 41048.2,
+    "parameters": 1976626,
+    "bad_gradient_batches": 0,
+    "batches": 32
+  },
+  "rates_checked": "2026-09-05",
+  "rates_source": "https://modal.com/pricing",
+  "train_allocation_dollars_per_second": 0.00127284,
+  "note": "Diagnostic snapshot preceded the addition of summarize.py; training architecture and recipe unchanged.",
+  "implementation_commit": "25cba186",
+  "analysis_changes_after_launch": [
+    "summarize.py: add an automatically derived conclusion to the report; training and evaluation code unchanged."
+  ],
+  "training_elapsed_seconds": 1185,
+  "training_cost_estimate_dollars": 1.5083153999999999,
+  "training_log_sha256": "286b3a592a48631a7444a93823a0ebc2bae302f88f6630e8391a2adc7a2e1ff1",
+  "restarts": 0,
+  "evaluation_app": "ap-mGiZS5Bkh1bEhnwXbJoNG5",
+  "actual_training_samples": 20123648,
+  "checkpoint_sha256": "d2db518c91720052a2f371dc4698daff2ba4c3aa947977ad559dc442df74fc28",
+  "validation_rows": 63000,
+  "secondary_validation_rows": 44514,
+  "local_tests_passed": 11,
+  "source_verification": "Training source unchanged after launch; only the report formatter was updated.",
+  "apps_at_completion": [
+    {
+      "app_id": "ap-mGiZS5Bkh1bEhnwXbJoNG5",
+      "description": "katago-fno-5x5",
+      "state": "stopped",
+      "tasks": "0",
+      "created_at": "2026-09-05 13:40:28-04:00",
+      "stopped_at": "2026-09-05 13:41:53-04:00"
+    },
+    {
+      "app_id": "ap-pxLvikaJrzstBfAiMJ5Ut8",
+      "description": "katago-fno-5x5",
+      "state": "stopped",
+      "tasks": "0",
+      "created_at": "2026-09-05 13:19:51-04:00",
+      "stopped_at": "2026-09-05 13:39:57-04:00"
+    },
+    {
+      "app_id": "ap-OV7j4tefFVXWrFJqdjLUob",
+      "description": "katago-fno-5x5",
+      "state": "stopped",
+      "tasks": "0",
+      "created_at": "2026-09-05 13:18:51-04:00",
+      "stopped_at": "2026-09-05 13:19:28-04:00"
+    }
+  ]
+}

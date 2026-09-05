@@ -1,0 +1,22 @@
+{
+  "checkpoint_sha256": "d2db518c91720052a2f371dc4698daff2ba4c3aa947977ad559dc442df74fc28",
+  "description": "First 2048 validation rows, fp32, all eight D4 transforms; inference intervention only",
+  "base": {
+    "rows": 2048,
+    "symmetries": 8,
+    "p0loss": 1.2507064528763294,
+    "vloss": 0.08114433637820184,
+    "pacc1": 0.73486328125,
+    "ptentr": 1.0348416473716497,
+    "policy_kl": 0.21586479060351849
+  },
+  "spectral_off": {
+    "rows": 2048,
+    "symmetries": 8,
+    "p0loss": 2.1448007076978683,
+    "vloss": 0.6677214093506336,
+    "pacc1": 0.302978515625,
+    "ptentr": 1.0348416473716497,
+    "policy_kl": 1.1099590137600899
+  }
+}

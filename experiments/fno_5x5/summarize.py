@@ -48,9 +48,28 @@ def main():
     plt.close(fig)
 
     fno = records['FNO adaptation']
+    def worse_than(name):
+        ref = records[name]
+        return all(fno[k] > ref[k] and
+                   fno['unseen_game_and_D4_input'][k] > ref['unseen_game_and_D4_input'][k]
+                   for k in ('p0loss', 'vloss'))
+
+    def better_than(name):
+        ref = records[name]
+        return all(fno[k] < ref[k] and
+                   fno['unseen_game_and_D4_input'][k] < ref['unseen_game_and_D4_input'][k]
+                   for k in ('p0loss', 'vloss'))
+
+    finding = ''
+    if all(worse_than(name) for name in ('CNN', 'Transformer')):
+        finding += 'This FNO configuration trails the CNN and transformer on final policy and value loss in both validation sets. '
+    if better_than('Un-0 adaptation'):
+        finding += 'It improves on the Un-0 adaptation on both losses in both sets. '
+    finding += 'This one-seed comparison does not establish a general ranking of architecture families.'
     lines = ['# Fourier neural operator 5x5 pilot: seed 1', '',
              f"One architecture, one seed, {fno['samples']:,} training samples. "
              'The final checkpoint was fixed in advance; no hyperparameter sweep or endpoint selection.', '',
+             finding, '',
              '## Final fixed validation', '',
              'All four final raw checkpoints were evaluated together: fp32, full history, all 63,000 rows, '
              'mean loss over eight D4 transformations. Lower losses are better; top-1 measures agreement '
