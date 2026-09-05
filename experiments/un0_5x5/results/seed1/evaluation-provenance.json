@@ -1,0 +1,10 @@
+{
+  "evaluation_app": "ap-wzr1LGQFf2DdsVwtUzR1co",
+  "evaluation_source_sha256": "4f5b2eb0f913495c6b994e497aa2f1ee0d4c19f6d365faa0b18a42d7243df29d",
+  "report_source_sha256": "6d007d9441b0ce75eb6b0e703b90055716e25873501893fa5606450dc44898b4",
+  "audit_note": "The checked-in auditor adds a 5x5 input-shape guard after mask generation; its hashing and mask algorithms are unchanged. Input-file hashes are in data-audit.json; the mask NPZ is saved beside it.",
+  "torch": "2.8.0",
+  "gpu": "H100",
+  "tests": "8 passed; numerical dynamics, model integration, fixed validation and overlap audit",
+  "mask_sha256": "b82d6ac677b0d8d39f7b9db3ddeec25937bd0e2d980e4e74c9c195b0a3bfdb47"
+}

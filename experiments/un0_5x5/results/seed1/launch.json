@@ -1,0 +1,14 @@
+{
+  "reference_un0_commit": "75243cab846c092527734925c2433b556f5e5ee7",
+  "diagnostic_app": "ap-FSr4QOu1FKcScwFt1guznk",
+  "training_app": "ap-8bdOLNa8iUeTqmqiZsR7K7",
+  "training_orchestrator": "fc-01M1S73PJGAHCP9ATQ9BEX2WW2",
+  "seed1_call": "fc-01M1S73SZ49JQGEZVZEDNZ09DV",
+  "seed2_call": "fc-01M1S73T69NZS08ZH90PN29AJY",
+  "seed2_status": "Cancelled on user request shortly after launch; partial outputs excluded",
+  "launch_note": "Started with seeds 1 and 2; user reduced scope to seed 1 while jobs were active. Seed 2 was explicitly cancelled and cancellation was verified. Launcher now permits seed 1 only.",
+  "diagnostic_note": "The diagnostic used intermediate_head_blocks=5 inherited from CNN; corrected to 1 before training. With one trunk block this changes no forward computation, but the training configuration assertion requires it.",
+  "source_note": "study.json records source hashes at launch. The model/training files remain byte-identical. Later work restricted orchestration to seed 1 and added analysis: fixed validation, the data-overlap audit, secondary subset evaluation, tests and reporting.",
+  "seed1_status": "Completed: 20,123,648 samples, 40 validation epochs, 935 training seconds",
+  "orchestrator_note": "The original two-seed orchestrator exited with the seed-2 cancellation after seed 1 completed successfully. Seed-1 summary and checkpoints were saved; final evaluation completed in a separate app."
+}

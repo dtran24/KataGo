@@ -2955,6 +2955,7 @@ class MetadataEncoder(torch.nn.Module):
 # NotImplementedError so the omission is caught immediately.
 _BLOCK_KIND_FLAGS = {
     # (uses_gab, uses_tab)
+    "un0":                                  (False, False),
     "regular":                              (False, False),
     "bottle1":                              (False, False),
     "bottle":                               (False, False),
@@ -3159,7 +3160,10 @@ class Model(torch.nn.Module):
                 use_gpool_this_block = True
                 block_kind = block_kind[:-5]
 
-            if block_kind == "regular":
+            if block_kind == "un0":
+                from .un0 import Un0Block
+                self.blocks.append(Un0Block(block_name, self.c_trunk, self.config, pos_len))
+            elif block_kind == "regular":
                 self.blocks.append(ResBlock(
                     name=block_name,
                     c_main=self.c_trunk,

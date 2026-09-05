@@ -2135,3 +2135,16 @@ for name, base_config in list(config_of_name.items()):
         "internal_num_channels": config["trunk_num_channels"],
     }
     config_of_name[name+"-meta"] = config
+
+# Fixed-board research model. Deliberately excluded from automatic suffix
+# expansion and C++ export. The stem, norm, and all heads use the pair-1 CNN recipe.
+un0_5x5 = config_of_name["b5c192nbt-fson-mish-rvglr-bnh"].copy()
+un0_5x5.update({
+    "block_kind": [["oscillator", "un0"]],
+    "intermediate_head_blocks": 1,
+    "un0_channels": 50,  # 1,250 globally coupled oscillators
+    "un0_steps": 10,
+    "un0_time": 1.0,
+    "un0_solver": "euler",
+})
+config_of_name["un0-b5c192-n1250-e10"] = un0_5x5

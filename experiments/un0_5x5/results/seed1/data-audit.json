@@ -1,0 +1,31 @@
+{
+  "train_rows": 985600,
+  "validation_rows": 63000,
+  "train_unique_games": 82373,
+  "validation_unique_games": 5320,
+  "shared_games": 115,
+  "validation_rows_from_shared_games": 849,
+  "validation_rows_with_exact_train_input": 14081,
+  "validation_rows_with_D4_equivalent_train_input": 17853,
+  "validation_unique_exact_inputs": 51597,
+  "validation_unique_D4_inputs": 47926,
+  "validation_rows_with_unseen_game_and_D4_input": 44514,
+  "input_scope": "full-history 22 spatial + 19 global features; excludes targets",
+  "files_sha256": {
+    "train/data0_0.npz": "9b64955f5596ca0a317e1d18690f0d7b7b7fca994c42061e0f0c955de4c2c9b8",
+    "train/data10_0.npz": "70f665cb1edb4cff441c8796e98b448f93d3715e47e44954173b11d6f3bce326",
+    "train/data11_0.npz": "77314d89b146d19139eb89e378934f84988f193d4faee76beb8d5982e0774d8c",
+    "train/data12_0.npz": "8d142ed2fed1e5f9cad6503b408077fe238acd61db48bff0b04363b26e9bc4a8",
+    "train/data13_0.npz": "1d12019fb57f3faf66c0d60cc9e7fe9329cfbca52deaae7fd8b0c1ee79f678e7",
+    "train/data1_0.npz": "46af3a451aab1f03edbaf839b2cf3c1ac6093253c9ff6a8c03c661938c73ed23",
+    "train/data2_0.npz": "43fad2d2405ed3255487a9cd52f2d4668b19188c74e9c27769f4c22a92bc5ffe",
+    "train/data3_0.npz": "7c5894997be1a69bc84248c7ab94f25456f19978007e7c390b7ae40c1cbaa4bb",
+    "train/data4_0.npz": "5d781c0c5354886ebe4e9dd304ea20f43d525bec508ab8ef592e4a131761f7f3",
+    "train/data5_0.npz": "4b5b4bf3d0eab65f0b20ca93e77b5f1ea6d66f949e88709a92db9810e10a75b3",
+    "train/data6_0.npz": "ea5c9338c95234b4fe9d037a0acf301525fb84c72a9f09af9454e709430a5b93",
+    "train/data7_0.npz": "9bfdd313f4013c276da366d23841c5a1f10717f16b1356ccadd1efa8581e171e",
+    "train/data8_0.npz": "c8b0cb7f2e65553085bf87f82a72dcb9639b3db1bbf0dd71f9456458fdcd03ba",
+    "train/data9_0.npz": "3d471f82ea45d44739517451774d0ae9f5f8291dadec6e56bbfc3075f1007d06",
+    "val/data0_0.npz": "1ef0d1ec878bd5c14767aad7cbeddbb6b69716fc3a374d1d592a6914e7e77de8"
+  }
+}

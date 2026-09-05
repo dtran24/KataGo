@@ -1,0 +1,14 @@
+Trainloop benchmark: model=b5c192nbt-fson-mish-rvglr-bnh optimizer=muon batch_size=2048/gpu world_size=1 amp=False bf16=True compile=False iters=12 warmup=4
+Total parameters: 1,935,298
+Warming up (includes compilation) ...
+Warmup took 15.0 s
+
+================================================================================
+TRAINLOOP THROUGHPUT
+================================================================================
+  Per-iter:    43.66 ms  (std   1.98 ms, min    40.73 ms, max    47.90 ms)
+  Total: 0.524 s for 12 iters
+  Throughput: 46,908.4 samples/s (batch 2048 x world_size 1)
+  Peak GPU memory (rank 0): 2.20 GiB
+  Final loss_sum: 49435.38
+  Bad-gnorm batches: 0/16 (0 nonfinite, 0 extreme, max consecutive 0)
